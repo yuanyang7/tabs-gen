@@ -17,6 +17,7 @@ pyguitarpro>=0.10.0
 # CLI / config
 click>=8.1.0
 pydantic>=2.0.0
+yt-dlp>=2024.1.0
 
 # Stage 1: Source separation (PyTorch stack)
 # Install separately or via: pip install demucs

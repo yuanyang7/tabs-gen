@@ -12,7 +12,7 @@ from tabs_gen.pipeline import PipelineConfig, run_pipeline
 
 
 @click.command()
-@click.argument("audio_file", type=click.Path(exists=True, path_type=Path))
+@click.argument("audio_file", type=str)  # str to accept URLs as well as file paths
 @click.option(
     "--output", "-o",
     default="./output",
@@ -89,7 +89,7 @@ from tabs_gen.pipeline import PipelineConfig, run_pipeline
 )
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging.")
 def main(
-    audio_file: Path,
+    audio_file: str,
     output: Path,
     formats: tuple[str, ...],
     instruments: tuple[str, ...],
@@ -105,18 +105,19 @@ def main(
 ) -> None:
     """Split an audio file into instrument stems using Demucs.
 
+    AUDIO_FILE can be a local file path (MP3, WAV, FLAC, …) or a YouTube URL.
+    YouTube URLs are downloaded as MP3 via yt-dlp before processing.
+
     By default only source separation is performed, writing per-instrument WAV
     stems to <output>/stems/. Pass --generate-tabs to also run transcription
     and produce ASCII / Guitar Pro 5 tab files (draft-quality output).
 
-    AUDIO_FILE can be an MP3, WAV, FLAC, or any format supported by ffmpeg.
-
     Example:
 
     \b
-        tabs-gen song.mp3 --output ./stems/
+        tabs-gen song.mp3
+        tabs-gen https://www.youtube.com/watch?v=XXXXXXXXXXX
         tabs-gen song.mp3 --generate-tabs --format ascii --format gp5
-        tabs-gen song.wav --generate-tabs --instrument guitar --instrument bass
     """
     log_level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
@@ -125,9 +126,27 @@ def main(
         datefmt="%H:%M:%S",
     )
 
+    # Resolve the audio source — download if it's a YouTube URL
+    from tabs_gen.utils.youtube import is_youtube_url, download_audio
+
+    output_path = Path(output)
+    if is_youtube_url(audio_file):
+        click.echo(f"YouTube URL detected. Downloading audio…")
+        try:
+            resolved_audio = download_audio(audio_file, output_path)
+        except RuntimeError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+        click.echo(f"Downloaded: {resolved_audio.name}")
+    else:
+        resolved_audio = Path(audio_file)
+        if not resolved_audio.exists():
+            click.echo(f"Error: file not found: {audio_file}", err=True)
+            sys.exit(1)
+
     config = PipelineConfig(
-        audio_path=audio_file,
-        output_dir=output,
+        audio_path=resolved_audio,
+        output_dir=output_path,
         demucs_model=model,
         device=device,
         demucs_shifts=shifts,
@@ -136,11 +155,11 @@ def main(
         crepe_model=crepe_model,
         formats=list(formats),
         instruments=list(instruments),
-        title=title or audio_file.stem,
+        title=title or resolved_audio.stem,
         generate_tabs=generate_tabs,
     )
 
-    click.echo(f"Processing: {audio_file.name}")
+    click.echo(f"Processing: {resolved_audio.name}")
     click.echo(f"Device: {device}  |  Model: {model}")
     if generate_tabs:
         click.echo(f"Instruments: {', '.join(config.instruments)}")
