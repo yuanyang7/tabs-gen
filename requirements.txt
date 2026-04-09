@@ -1,0 +1,38 @@
+# Core audio utilities
+numpy>=1.24.0
+scipy>=1.11.0
+soundfile>=0.12.0
+librosa>=0.11.0
+ffmpeg-python>=0.2.0
+tqdm>=4.65.0
+
+# MIDI
+pretty_midi>=0.2.10
+mido>=1.3.0
+
+# Notation / output
+music21>=9.3.0
+pyguitarpro>=0.10.0
+
+# CLI / config
+click>=8.1.0
+pydantic>=2.0.0
+
+# Stage 1: Source separation (PyTorch stack)
+# Install separately or via: pip install demucs
+# demucs>=4.0.0
+# torch>=2.0.0
+# torchaudio>=2.0.0
+
+# Stage 2: Transcription (TensorFlow stack)
+# basic-pitch and crepe both require TensorFlow 2.x.
+# Recommended: install in the same conda env with tensorflow-macos on Apple Silicon.
+# pip install basic-pitch crepe
+# basic-pitch>=0.3.0
+# crepe>=0.0.14
+
+# Stage 2: Drum transcription
+# ADTLib requires madmom which needs older numpy — install after other deps.
+# pip install madmom ADTLib
+# ADTLib>=1.0.0
+# madmom>=0.16.1
