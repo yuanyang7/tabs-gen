@@ -41,6 +41,9 @@ class PipelineConfig:
         default_factory=lambda: ["guitar", "bass", "drums", "vocals"]
     )
 
+    # Tab generation is opt-in; source separation runs by default
+    generate_tabs: bool = False
+
     # Song title for output headers
     title: str = ""
 
@@ -88,6 +91,12 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
         shifts=config.demucs_shifts,
     )
     result.stem_paths = stem_paths
+
+    if not config.generate_tabs:
+        logger.info("Tab generation disabled (pass generate_tabs=True to enable).")
+        result.elapsed_seconds = time.time() - start
+        return result
+
     requested = set(config.instruments)
 
     # ------------------------------------------------------------------ #

@@ -97,7 +97,13 @@ def transcribe_pitched(
 
 
 def transcribe_guitar(stem_path: str | Path, **kwargs) -> MidiData:
-    """Transcribe a guitar stem (full frequency range, polyphonic)."""
+    """Transcribe a guitar stem (full frequency range, polyphonic).
+
+    # TODO: Output quality needs improvement — chord accuracy is ~40–50% and single-note
+    # accuracy ~65%. Consider a dedicated chord recognition model or fine-tuning Basic-Pitch
+    # on guitar-specific data before relying on this output. Revisit before promoting tab
+    # generation to a default-on feature.
+    """
     return transcribe_pitched(
         stem_path,
         min_freq=80.0,    # below low E string on guitar (82 Hz)
@@ -108,7 +114,12 @@ def transcribe_guitar(stem_path: str | Path, **kwargs) -> MidiData:
 
 
 def transcribe_bass(stem_path: str | Path, **kwargs) -> MidiData:
-    """Transcribe a bass guitar stem (restricted low-frequency range)."""
+    """Transcribe a bass guitar stem (restricted low-frequency range).
+
+    # TODO: Output quality needs improvement — note accuracy is ~75% and rhythm ~85%.
+    # Best of the instrument transcriptions but still draft-quality. Revisit before
+    # promoting tab generation to a default-on feature.
+    """
     return transcribe_pitched(
         stem_path,
         min_freq=30.0,   # below open B string on 5-string bass
@@ -129,6 +140,10 @@ def transcribe_vocals(
     viterbi: bool = True,
 ) -> MidiData:
     """Transcribe vocal melody using CREPE pitch estimation.
+
+    # TODO: Output quality needs improvement — pitch accuracy is ~80% but rhythm ~70%.
+    # Slides, vibrato, and portamento are all discretised to semitones. Only works well
+    # on clean, isolated vocals. Revisit before promoting tab generation to a default-on feature.
 
     Args:
         stem_path: path to separated vocals WAV.
@@ -216,6 +231,10 @@ class DrumData:
 
 def transcribe_drums(stem_path: str | Path) -> DrumData:
     """Transcribe drums using ADTLib (kick, snare, hi-hat).
+
+    # TODO: Output quality needs improvement — kick/snare/hi-hat accuracy is ~70% but drum
+    # fills and toms drop to ~50%. Cymbals are often misidentified. A better drum classifier
+    # is needed before promoting tab generation to a default-on feature.
 
     Falls back to a librosa onset-detection approach if ADTLib is not installed.
 

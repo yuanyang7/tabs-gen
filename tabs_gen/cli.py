@@ -81,6 +81,12 @@ from tabs_gen.pipeline import PipelineConfig, run_pipeline
     default="",
     help="Song title used in output file names and headers (defaults to filename stem).",
 )
+@click.option(
+    "--generate-tabs",
+    is_flag=True,
+    default=False,
+    help="Run transcription and tab generation after source separation (opt-in; output quality is draft-level).",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging.")
 def main(
     audio_file: Path,
@@ -94,17 +100,23 @@ def main(
     frame_threshold: float,
     crepe_model: str,
     title: str,
+    generate_tabs: bool,
     verbose: bool,
 ) -> None:
-    """Generate instrument tabs from an audio file.
+    """Split an audio file into instrument stems using Demucs.
+
+    By default only source separation is performed, writing per-instrument WAV
+    stems to <output>/stems/. Pass --generate-tabs to also run transcription
+    and produce ASCII / Guitar Pro 5 tab files (draft-quality output).
 
     AUDIO_FILE can be an MP3, WAV, FLAC, or any format supported by ffmpeg.
 
     Example:
 
     \b
-        tabs-gen song.mp3 --output ./tabs/ --format ascii --format gp5
-        tabs-gen song.wav --instrument guitar --instrument bass --device cpu
+        tabs-gen song.mp3 --output ./stems/
+        tabs-gen song.mp3 --generate-tabs --format ascii --format gp5
+        tabs-gen song.wav --generate-tabs --instrument guitar --instrument bass
     """
     log_level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
@@ -125,12 +137,16 @@ def main(
         formats=list(formats),
         instruments=list(instruments),
         title=title or audio_file.stem,
+        generate_tabs=generate_tabs,
     )
 
     click.echo(f"Processing: {audio_file.name}")
-    click.echo(f"Instruments: {', '.join(config.instruments)}")
-    click.echo(f"Output formats: {', '.join(config.formats)}")
     click.echo(f"Device: {device}  |  Model: {model}")
+    if generate_tabs:
+        click.echo(f"Instruments: {', '.join(config.instruments)}")
+        click.echo(f"Output formats: {', '.join(config.formats)}")
+    else:
+        click.echo("Mode: stem separation only (use --generate-tabs to also produce tabs)")
     click.echo("")
 
     try:
