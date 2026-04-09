@@ -38,10 +38,13 @@ def download_audio(url: str, output_dir: Path) -> Path:
         "yt-dlp",
         "--extract-audio",
         "--audio-format", "mp3",
-        "--audio-quality", "0",      # best quality
+        "--audio-quality", "0",          # best quality
         "--output", output_template,
-        "--no-playlist",             # single video only
+        "--no-playlist",                 # single video only
         "--print", "after_move:filepath",  # print final path to stdout
+        # JS challenge solving — required for YouTube as of 2024
+        "--js-runtimes", "node",
+        "--remote-components", "ejs:github",
         url,
     ]
 
