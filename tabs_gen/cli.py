@@ -15,7 +15,7 @@ from tabs_gen.pipeline import PipelineConfig, run_pipeline
 @click.argument("audio_file", type=str)  # str to accept URLs as well as file paths
 @click.option(
     "--output", "-o",
-    default="./output",
+    default="/Volumes/home/tabs-gen-output",
     show_default=True,
     type=click.Path(path_type=Path),
     help="Directory to write output files.",
