@@ -87,6 +87,12 @@ from tabs_gen.pipeline import PipelineConfig, run_pipeline
     default=False,
     help="Run transcription and tab generation after source separation (opt-in; output quality is draft-level).",
 )
+@click.option(
+    "--upload",
+    is_flag=True,
+    default=False,
+    help="Upload MP3 and stems to Google Drive after processing (requires rclone configured with 'gdrive' remote).",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging.")
 def main(
     audio_file: str,
@@ -101,6 +107,7 @@ def main(
     crepe_model: str,
     title: str,
     generate_tabs: bool,
+    upload: bool,
     verbose: bool,
 ) -> None:
     """Split an audio file into instrument stems using Demucs.
@@ -189,6 +196,25 @@ def main(
         click.echo(f"  GP5 file:  {result.gp5_path}")
     if result.stem_paths:
         click.echo(f"  Stems dir: {config.output_dir / 'stems'}")
+
+    if upload:
+        from tabs_gen.utils.gdrive import upload as gdrive_upload
+
+        to_upload: list[Path] = []
+        if downloaded_mp3:
+            to_upload.append(downloaded_mp3)
+        stems_dir = config.output_dir / "stems"
+        if stems_dir.exists():
+            to_upload.append(stems_dir)
+
+        if to_upload:
+            click.echo("")
+            click.echo("Uploading to Google Drive…")
+            try:
+                gdrive_upload(to_upload, remote_subfolder=config.title)
+                click.echo(f"  Uploaded to Drive: {config.title}/")
+            except RuntimeError as e:
+                click.echo(f"  Upload error: {e}", err=True)
 
 
 if __name__ == "__main__":
