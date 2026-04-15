@@ -130,6 +130,7 @@ def main(
     from tabs_gen.utils.youtube import is_youtube_url, download_audio
 
     output_path = Path(output)
+    downloaded_mp3: Path | None = None
     if is_youtube_url(audio_file):
         click.echo(f"YouTube URL detected. Downloading audio…")
         try:
@@ -137,6 +138,7 @@ def main(
         except RuntimeError as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
+        downloaded_mp3 = resolved_audio
         click.echo(f"Downloaded: {resolved_audio.name}")
     else:
         resolved_audio = Path(audio_file)
@@ -179,6 +181,8 @@ def main(
 
     click.echo("")
     click.echo(f"Done in {result.elapsed_seconds:.1f}s")
+    if downloaded_mp3:
+        click.echo(f"  MP3:       {downloaded_mp3}")
     if result.ascii_path:
         click.echo(f"  ASCII tab: {result.ascii_path}")
     if result.gp5_path:
