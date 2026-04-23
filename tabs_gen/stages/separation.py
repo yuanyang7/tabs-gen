@@ -102,7 +102,8 @@ def separate(
     stem_dirs = list(model_dir.iterdir())
     if not stem_dirs:
         raise RuntimeError(f"No output found in {model_dir}")
-    stem_dir = stem_dirs[0]  # only one track was processed
+    # Pick the directory most recently written by this demucs run
+    stem_dir = max(stem_dirs, key=lambda d: d.stat().st_mtime)
 
     stem_paths: dict[str, Path] = {}
     for wav_file in stem_dir.glob("*.wav"):
