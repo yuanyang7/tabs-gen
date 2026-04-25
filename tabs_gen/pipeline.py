@@ -44,6 +44,11 @@ class PipelineConfig:
     # Tab generation is opt-in; source separation runs by default
     generate_tabs: bool = False
 
+    # Stem compression (WAV → MP3) runs automatically after separation
+    compress_stems: bool = True
+    stem_bitrate: str = "320k"
+    keep_wav: bool = False  # if True, keep WAV stems alongside MP3s
+
     # Song title for output headers
     title: str = ""
 
@@ -57,6 +62,7 @@ class PipelineConfig:
 @dataclass
 class PipelineResult:
     stem_paths: dict[str, Path] = field(default_factory=dict)
+    mp3_stem_paths: dict[str, Path] = field(default_factory=dict)
     ascii_path: Path | None = None
     gp5_path: Path | None = None
     elapsed_seconds: float = 0.0
@@ -91,6 +97,19 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
         shifts=config.demucs_shifts,
     )
     result.stem_paths = stem_paths
+
+    # ------------------------------------------------------------------ #
+    # Stage 1b: Compress stems WAV → MP3
+    # ------------------------------------------------------------------ #
+    if config.compress_stems:
+        logger.info("=== Stage 1b: Compressing stems to MP3 (%s) ===", config.stem_bitrate)
+        from tabs_gen.utils.compress import compress_stems as do_compress
+
+        result.mp3_stem_paths = do_compress(
+            stem_paths,
+            bitrate=config.stem_bitrate,
+            keep_wav=config.keep_wav,
+        )
 
     if not config.generate_tabs:
         logger.info("Tab generation disabled (pass generate_tabs=True to enable).")

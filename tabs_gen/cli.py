@@ -88,6 +88,12 @@ from tabs_gen.pipeline import PipelineConfig, run_pipeline
     help="Run transcription and tab generation after source separation (opt-in; output quality is draft-level).",
 )
 @click.option(
+    "--keep-wav",
+    is_flag=True,
+    default=False,
+    help="Keep source WAV stems alongside the compressed MP3s.",
+)
+@click.option(
     "--upload",
     is_flag=True,
     default=False,
@@ -107,6 +113,7 @@ def main(
     crepe_model: str,
     title: str,
     generate_tabs: bool,
+    keep_wav: bool,
     upload: bool,
     verbose: bool,
 ) -> None:
@@ -166,6 +173,7 @@ def main(
         instruments=list(instruments),
         title=title or resolved_audio.stem,
         generate_tabs=generate_tabs,
+        keep_wav=keep_wav,
     )
 
     click.echo(f"Processing: {resolved_audio.name}")
@@ -196,6 +204,8 @@ def main(
         click.echo(f"  GP5 file:  {result.gp5_path}")
     if result.stem_paths:
         click.echo(f"  Stems dir: {config.output_dir / 'stems'}")
+    if result.mp3_stem_paths:
+        click.echo(f"  MP3 stems: {config.output_dir / 'stems'} ({len(result.mp3_stem_paths)} MP3s)")
 
     if upload:
         from tabs_gen.utils.gdrive import upload as gdrive_upload
