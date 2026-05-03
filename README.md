@@ -1,14 +1,38 @@
 # tabs-gen
 
-Generate instrument tabs from any audio file using ML-based source separation and transcription.
+Generate instrument stems and tabs from any audio file or YouTube URL using ML-based source separation and transcription.
 
-Given an MP3 or WAV, `tabs-gen` outputs:
-- Guitar tabs (ASCII + Guitar Pro)
-- Bass tabs (ASCII + Guitar Pro)
-- Drum tabs (ASCII)
-- Vocal melody notation (ASCII)
+## Quick start
+
+```bash
+# Activate the venv first (required every session)
+source .venv/bin/activate
+
+# Split a YouTube video into 6 stems (vocals/drums/bass/guitar/piano/other)
+tabs-gen "https://youtu.be/<id>"
+
+# Same with a local file
+tabs-gen song.mp3
+
+# Also generate ASCII + Guitar Pro tabs (opt-in, takes longer)
+tabs-gen "https://youtu.be/<id>" --generate-tabs
+
+# Upload stems + MP3 to Google Drive after processing
+tabs-gen "https://youtu.be/<id>" --upload
+```
+
+Stems are saved as 320kbps MP3s in `<output>/stems/`. Tab generation is **opt-in** via `--generate-tabs` — stem separation alone is the default and fastest path.
 
 Output quality is **draft-quality** — suitable as a starting point for manual refinement, not a finished product. See [Quality Expectations](#quality-expectations) for details.
+
+---
+
+Given an MP3, WAV, or YouTube URL, `tabs-gen` outputs:
+- Separated stems (vocals, guitar, bass, drums, piano, other) as MP3
+- Guitar tabs (ASCII + Guitar Pro) — with `--generate-tabs`
+- Bass tabs (ASCII + Guitar Pro) — with `--generate-tabs`
+- Drum tabs (ASCII) — with `--generate-tabs`
+- Vocal melody notation (ASCII) — with `--generate-tabs`
 
 ## How it works
 
@@ -82,17 +106,27 @@ sudo apt install ffmpeg    # Ubuntu/Debian
 ## Usage
 
 ```bash
-# Full pipeline — all instruments, ASCII + GP5 output
+# Stems only (default — fast, no tab generation)
 tabs-gen song.mp3
+tabs-gen "https://youtu.be/<id>"
+
+# Stems + tabs (all instruments, ASCII + GP5 output)
+tabs-gen song.mp3 --generate-tabs
 
 # Specify output directory
 tabs-gen song.mp3 --output ./my-tabs/
 
-# Guitar and bass only
-tabs-gen song.mp3 --instrument guitar --instrument bass
+# Guitar and bass tabs only
+tabs-gen song.mp3 --generate-tabs --instrument guitar --instrument bass
 
 # ASCII text only (skip GP5)
-tabs-gen song.mp3 --format ascii
+tabs-gen song.mp3 --generate-tabs --format ascii
+
+# Keep original WAV stems alongside MP3s
+tabs-gen song.mp3 --keep-wav
+
+# Upload MP3 + stems to Google Drive via rclone after processing
+tabs-gen song.mp3 --upload
 
 # CPU mode (slower, no GPU required)
 tabs-gen song.mp3 --device cpu
@@ -106,10 +140,13 @@ tabs-gen song.mp3 --shifts 10
 ```
 Usage: tabs-gen [OPTIONS] AUDIO_FILE
 
-  Generate instrument tabs from an audio file.
+  Generate stems (and optionally tabs) from an audio file or YouTube URL.
 
 Options:
-  -o, --output PATH               Output directory  [default: ./output]
+  -o, --output PATH               Output directory
+                                  [default: /Volumes/home/tabs-gen-output]
+  --generate-tabs                 Run transcription + tab generation after
+                                  separation (opt-in; draft-quality output)
   -f, --format [ascii|gp5]        Output format(s), repeatable  [default: ascii, gp5]
   -i, --instrument [guitar|bass|drums|vocals]
                                   Instruments to include, repeatable
@@ -117,6 +154,8 @@ Options:
                                   [default: htdemucs_6s]
   --device TEXT                   Torch device: mps, cuda, cpu  [default: mps]
   --shifts INTEGER                Test-time shifts (1=fast, 10=best)  [default: 1]
+  --keep-wav                      Keep full-quality WAV stems alongside MP3s
+  --upload                        Upload MP3 + stems to Google Drive via rclone
   --onset-threshold FLOAT         basic-pitch onset threshold 0–1  [default: 0.5]
   --frame-threshold FLOAT         basic-pitch frame threshold 0–1  [default: 0.3]
   --crepe-model [tiny|small|medium|large|full]
@@ -126,21 +165,33 @@ Options:
   --help                          Show this message and exit
 ```
 
+### Google Drive upload setup
+
+`--upload` requires [rclone](https://rclone.org/) with a remote named `gdrive` configured:
+
+```bash
+brew install rclone
+rclone config  # follow prompts to add a Google Drive remote named "gdrive"
+```
+
+Files are uploaded to `gdrive:<song_title>/`.
+
 ## Output
 
-For an input file `song.mp3`, the output directory contains:
+For an input `song.mp3` (or YouTube download), the output directory contains:
 
 ```
-output/
-├── song.txt          # ASCII tabs for all instruments
-├── song.gp5          # Guitar Pro 5 file (guitar + bass + drums)
+/Volumes/home/tabs-gen-output/
+├── song.mp3              # downloaded source (YouTube runs only)
+├── song.txt              # ASCII tabs — only with --generate-tabs
+├── song.gp5              # Guitar Pro 5 — only with --generate-tabs
 └── stems/
-    ├── vocals.wav
-    ├── guitar.wav
-    ├── bass.wav
-    ├── drums.wav
-    ├── piano.wav
-    └── other.wav
+    ├── vocals.mp3        # 320kbps MP3 (WAV also kept if --keep-wav)
+    ├── guitar.mp3
+    ├── bass.mp3
+    ├── drums.mp3
+    ├── piano.mp3
+    └── other.mp3
 ```
 
 ### ASCII tab example
