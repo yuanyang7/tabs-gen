@@ -37,10 +37,21 @@ from tabs_gen.pipeline import PipelineConfig, run_pipeline
     help="Instruments to include. Can be specified multiple times.",
 )
 @click.option(
+    "--backend",
+    default="demucs",
+    show_default=True,
+    type=click.Choice(["demucs", "mdx"], case_sensitive=False),
+    help=(
+        "Separation backend. "
+        "'mdx' chains MDX-Net (vocals) + Demucs (drums/bass/other) for higher quality 4-stem output. "
+        "'demucs' runs Demucs alone (supports 4- or 6-stem models)."
+    ),
+)
+@click.option(
     "--model",
     default="htdemucs_6s",
     show_default=True,
-    help="Demucs separation model. Options: htdemucs, htdemucs_6s, htdemucs_ft.",
+    help="Demucs model (demucs backend only). Options: htdemucs, htdemucs_6s, htdemucs_ft.",
 )
 @click.option(
     "--device",
@@ -105,6 +116,7 @@ def main(
     output: Path,
     formats: tuple[str, ...],
     instruments: tuple[str, ...],
+    backend: str,
     model: str,
     device: str,
     shifts: int,
@@ -163,6 +175,7 @@ def main(
     config = PipelineConfig(
         audio_path=resolved_audio,
         output_dir=output_path,
+        separation_backend=backend,
         demucs_model=model,
         device=device,
         demucs_shifts=shifts,
@@ -177,7 +190,10 @@ def main(
     )
 
     click.echo(f"Processing: {resolved_audio.name}")
-    click.echo(f"Device: {device}  |  Model: {model}")
+    if backend == "mdx":
+        click.echo(f"Device: {device}  |  Backend: mdx (Kim_Vocal_2 + htdemucs)")
+    else:
+        click.echo(f"Device: {device}  |  Backend: demucs  |  Model: {model}")
     if generate_tabs:
         click.echo(f"Instruments: {', '.join(config.instruments)}")
         click.echo(f"Output formats: {', '.join(config.formats)}")

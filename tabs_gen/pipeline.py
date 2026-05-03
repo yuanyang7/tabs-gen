@@ -23,6 +23,7 @@ class PipelineConfig:
     output_dir: str | Path = "./output"
 
     # Stage 1 — separation
+    separation_backend: str = "demucs"  # "demucs" | "mdx"
     demucs_model: str = "htdemucs_6s"
     device: str = "mps"
     demucs_shifts: int = 1
@@ -86,16 +87,26 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
     # ------------------------------------------------------------------ #
     # Stage 1: Source separation
     # ------------------------------------------------------------------ #
-    logger.info("=== Stage 1: Source separation ===")
-    from tabs_gen.stages.separation import separate
+    logger.info("=== Stage 1: Source separation (%s) ===", config.separation_backend)
+    if config.separation_backend == "mdx":
+        from tabs_gen.stages.separation import separate_mdx
 
-    stem_paths = separate(
-        audio_path=config.audio_path,
-        output_dir=stems_dir,
-        model=config.demucs_model,
-        device=config.device,
-        shifts=config.demucs_shifts,
-    )
+        stem_paths = separate_mdx(
+            audio_path=config.audio_path,
+            output_dir=stems_dir,
+            device=config.device,
+            shifts=config.demucs_shifts,
+        )
+    else:
+        from tabs_gen.stages.separation import separate
+
+        stem_paths = separate(
+            audio_path=config.audio_path,
+            output_dir=stems_dir,
+            model=config.demucs_model,
+            device=config.device,
+            shifts=config.demucs_shifts,
+        )
     result.stem_paths = stem_paths
 
     # ------------------------------------------------------------------ #

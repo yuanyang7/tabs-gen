@@ -125,6 +125,9 @@ tabs-gen song.mp3 --generate-tabs --format ascii
 # Keep original WAV stems alongside MP3s
 tabs-gen song.mp3 --keep-wav
 
+# Use MDX-Net backend for higher quality 4-stem separation
+tabs-gen song.mp3 --backend mdx
+
 # Upload MP3 + stems to Google Drive via rclone after processing
 tabs-gen song.mp3 --upload
 
@@ -145,6 +148,9 @@ Usage: tabs-gen [OPTIONS] AUDIO_FILE
 Options:
   -o, --output PATH               Output directory
                                   [default: /Volumes/home/tabs-gen-output]
+  --backend [demucs|mdx]          Separation backend (default: demucs).
+                                  mdx = MDX-Net vocals + Demucs instrumental,
+                                  higher quality 4-stem output.
   --generate-tabs                 Run transcription + tab generation after
                                   separation (opt-in; draft-quality output)
   -f, --format [ascii|gp5]        Output format(s), repeatable  [default: ascii, gp5]

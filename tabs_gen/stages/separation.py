@@ -1,10 +1,16 @@
-"""Stage 1: Source separation via Demucs.
+"""Stage 1: Source separation.
 
-Separates a mixed audio file into individual stems:
-  vocals, guitar, bass, drums, piano, other
+Two backends are available:
 
-Uses the htdemucs_6s model (6-stem variant) which explicitly isolates
-guitar and piano from the generic "other" bucket.
+  demucs (default)
+    Runs Demucs htdemucs_6s (6-stem) or htdemucs (4-stem) in a single pass.
+
+  mdx
+    Two-pass hybrid for higher-quality 4-stem output:
+      Pass 1 — MDX-Net vocal model (Kim_Vocal_2) → vocals + no_vocals
+      Pass 2 — Demucs htdemucs on no_vocals → drums + bass + other
+    Vocals benefit from the more focused MDX-Net model; drums/bass/other are
+    cleaner because vocals are already removed before Demucs runs.
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ STEMS_6S = ("vocals", "drums", "bass", "guitar", "piano", "other")
 STEMS_4S = ("vocals", "drums", "bass", "other")
 
 DEFAULT_MODEL = "htdemucs_6s"
+MDX_VOCALS_MODEL = "Kim_Vocal_2.onnx"
 
 
 def separate(
@@ -111,6 +118,83 @@ def separate(
         stem_paths[stem_name] = wav_file
         logger.info("  Found stem %s → %s", stem_name, wav_file)
 
+    return stem_paths
+
+
+def separate_mdx(
+    audio_path: str | Path,
+    output_dir: str | Path,
+    device: str = "mps",
+    shifts: int = 1,
+) -> dict[str, Path]:
+    """4-stem separation using MDX-Net (vocals) + Demucs (instrumental).
+
+    Returns stems: vocals, drums, bass, other.
+    """
+    import shutil
+
+    try:
+        from audio_separator.separator import Separator
+    except ImportError as e:
+        raise ImportError(
+            "audio-separator is required for the MDX backend. "
+            "Install it with: pip install 'audio-separator[cpu]'"
+        ) from e
+
+    audio_path = Path(audio_path)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    tmp_dir = output_dir / "_mdx_tmp"
+    tmp_dir.mkdir(exist_ok=True)
+
+    # Pass 1: MDX-Net vocals model → vocals + no_vocals
+    logger.info("MDX pass 1: separating vocals with %s", MDX_VOCALS_MODEL)
+    sep = Separator(output_dir=str(tmp_dir), output_format="WAV")
+    sep.load_model(MDX_VOCALS_MODEL)
+    pass1_files = sep.separate(str(audio_path))
+
+    # audio-separator names files like:
+    #   {track}_(Vocals)_Kim_Vocal_2.wav
+    #   {track}_(Instrumental)_Kim_Vocal_2.wav
+    vocals_file = next(
+        (Path(f) for f in pass1_files if "Vocals" in Path(f).name), None
+    )
+    no_vocals_file = next(
+        (Path(f) for f in pass1_files if "Instrumental" in Path(f).name), None
+    )
+    if vocals_file is None or no_vocals_file is None:
+        raise RuntimeError(
+            f"MDX pass 1 did not produce expected Vocals/Instrumental files. "
+            f"Got: {pass1_files}"
+        )
+
+    # Pass 2: Demucs htdemucs on no_vocals → drums + bass + other (+ vocals we discard)
+    logger.info("MDX pass 2: splitting instrumental into drums/bass/other via Demucs")
+    demucs_out = tmp_dir / "demucs"
+    instrumental_stems = separate(
+        audio_path=no_vocals_file,
+        output_dir=demucs_out,
+        model="htdemucs",
+        device=device,
+        shifts=shifts,
+    )
+
+    # Assemble final stems
+    stem_paths: dict[str, Path] = {}
+
+    vocals_dest = output_dir / "vocals.wav"
+    shutil.copy(vocals_file, vocals_dest)
+    stem_paths["vocals"] = vocals_dest
+    logger.info("  stem vocals → %s", vocals_dest)
+
+    for stem in ("drums", "bass", "other"):
+        if stem in instrumental_stems:
+            dest = output_dir / f"{stem}.wav"
+            shutil.copy(instrumental_stems[stem], dest)
+            stem_paths[stem] = dest
+            logger.info("  stem %s → %s", stem, dest)
+
+    shutil.rmtree(tmp_dir, ignore_errors=True)
     return stem_paths
 
 
