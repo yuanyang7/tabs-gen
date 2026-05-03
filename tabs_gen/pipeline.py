@@ -24,7 +24,7 @@ class PipelineConfig:
 
     # Stage 1 — separation
     separation_backend: str = "demucs"  # "demucs" | "mdx"
-    demucs_model: str = "htdemucs_6s"
+    demucs_model: str = "htdemucs"
     device: str = "mps"
     demucs_shifts: int = 1
 

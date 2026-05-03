@@ -27,8 +27,9 @@ STEMS_6S = ("vocals", "drums", "bass", "guitar", "piano", "other")
 # Stems produced by htdemucs (4-stem fallback)
 STEMS_4S = ("vocals", "drums", "bass", "other")
 
-DEFAULT_MODEL = "htdemucs_6s"
-MDX_VOCALS_MODEL = "Kim_Vocal_2.onnx"
+DEFAULT_MODEL = "htdemucs"
+MDX_VOCALS_MODEL = "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
+MDX_INSTRUMENTAL_DEMUCS_MODEL = "htdemucs_ft"
 
 
 def separate(
@@ -179,7 +180,7 @@ def separate_mdx(
     instrumental_stems = separate(
         audio_path=no_vocals_file,
         output_dir=demucs_out,
-        model="htdemucs",
+        model=MDX_INSTRUMENTAL_DEMUCS_MODEL,
         device=device,
         shifts=shifts,
     )

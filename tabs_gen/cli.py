@@ -49,9 +49,9 @@ from tabs_gen.pipeline import PipelineConfig, run_pipeline
 )
 @click.option(
     "--model",
-    default="htdemucs_6s",
+    default="htdemucs",
     show_default=True,
-    help="Demucs model (demucs backend only). Options: htdemucs, htdemucs_6s, htdemucs_ft.",
+    help="Demucs model (demucs backend only). Options: htdemucs, htdemucs_ft, htdemucs_6s.",
 )
 @click.option(
     "--device",
@@ -191,7 +191,7 @@ def main(
 
     click.echo(f"Processing: {resolved_audio.name}")
     if backend == "mdx":
-        click.echo(f"Device: {device}  |  Backend: mdx (Kim_Vocal_2 + htdemucs)")
+        click.echo(f"Device: {device}  |  Backend: mdx (BSRoformer vocals + htdemucs_ft instrumental)")
     else:
         click.echo(f"Device: {device}  |  Backend: demucs  |  Model: {model}")
     if generate_tabs:
