@@ -153,14 +153,19 @@ def separate_mdx(
     sep.load_model(MDX_VOCALS_MODEL)
     pass1_files = sep.separate(str(audio_path))
 
+    # audio-separator may return bare filenames; resolve against tmp_dir
+    def _resolve(name: str) -> Path:
+        p = Path(name)
+        return p if p.is_absolute() else tmp_dir / p.name
+
     # audio-separator names files like:
     #   {track}_(Vocals)_Kim_Vocal_2.wav
     #   {track}_(Instrumental)_Kim_Vocal_2.wav
     vocals_file = next(
-        (Path(f) for f in pass1_files if "Vocals" in Path(f).name), None
+        (_resolve(f) for f in pass1_files if "Vocals" in Path(f).name), None
     )
     no_vocals_file = next(
-        (Path(f) for f in pass1_files if "Instrumental" in Path(f).name), None
+        (_resolve(f) for f in pass1_files if "Instrumental" in Path(f).name), None
     )
     if vocals_file is None or no_vocals_file is None:
         raise RuntimeError(
