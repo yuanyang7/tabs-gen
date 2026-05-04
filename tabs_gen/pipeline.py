@@ -59,6 +59,12 @@ class PipelineConfig:
         if not self.title:
             self.title = self.audio_path.stem
 
+    @property
+    def backend_label(self) -> str:
+        if self.separation_backend == "mdx":
+            return "mdx"
+        return f"demucs_{self.demucs_model}"
+
 
 @dataclass
 class PipelineResult:
@@ -80,7 +86,7 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
     """
     start = time.time()
     config.output_dir.mkdir(parents=True, exist_ok=True)
-    stems_dir = config.output_dir / "stems"
+    stems_dir = config.output_dir / "stems" / config.backend_label
 
     result = PipelineResult()
 

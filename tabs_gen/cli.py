@@ -164,17 +164,25 @@ def main(
         except RuntimeError as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
-        downloaded_mp3 = resolved_audio
         click.echo(f"Downloaded: {resolved_audio.name}")
+        # Move downloaded file into its song subdirectory
+        song_name = title or resolved_audio.stem
+        song_dir = output_path / song_name
+        song_dir.mkdir(parents=True, exist_ok=True)
+        dest = song_dir / resolved_audio.name
+        resolved_audio = resolved_audio.rename(dest)
+        downloaded_mp3 = resolved_audio
     else:
         resolved_audio = Path(audio_file)
         if not resolved_audio.exists():
             click.echo(f"Error: file not found: {audio_file}", err=True)
             sys.exit(1)
+        song_name = title or resolved_audio.stem
+        song_dir = output_path / song_name
 
     config = PipelineConfig(
         audio_path=resolved_audio,
-        output_dir=output_path,
+        output_dir=song_dir,
         separation_backend=backend,
         demucs_model=model,
         device=device,
@@ -218,10 +226,11 @@ def main(
         click.echo(f"  ASCII tab: {result.ascii_path}")
     if result.gp5_path:
         click.echo(f"  GP5 file:  {result.gp5_path}")
+    stems_dir = config.output_dir / "stems" / config.backend_label
     if result.stem_paths:
-        click.echo(f"  Stems dir: {config.output_dir / 'stems'}")
+        click.echo(f"  Stems dir: {stems_dir}")
     if result.mp3_stem_paths:
-        click.echo(f"  MP3 stems: {config.output_dir / 'stems'} ({len(result.mp3_stem_paths)} MP3s)")
+        click.echo(f"  MP3 stems: {stems_dir} ({len(result.mp3_stem_paths)} MP3s)")
 
     if upload:
         from tabs_gen.utils.gdrive import upload as gdrive_upload
@@ -229,9 +238,9 @@ def main(
         to_upload: list[Path] = []
         if downloaded_mp3:
             to_upload.append(downloaded_mp3)
-        stems_dir = config.output_dir / "stems"
-        if stems_dir.exists():
-            to_upload.append(stems_dir)
+        upload_stems_dir = config.output_dir / "stems" / config.backend_label
+        if upload_stems_dir.exists():
+            to_upload.append(upload_stems_dir)
 
         if to_upload:
             click.echo("")
