@@ -66,42 +66,37 @@ Stage 4 — Output
 
 ## Installation
 
+### Quickest path — run the setup script
+
 ```bash
-# 1. Clone the repo
 git clone <repo-url>
 cd tabs-gen
+bash setup.sh
+```
+
+The script installs system dependencies (ffmpeg, node) via Homebrew, creates a `.venv`, and installs the Python packages. It will prompt before installing the optional tab-generation dependencies.
+
+### Manual setup
+
+```bash
+# 1. System dependencies (macOS)
+brew install ffmpeg node   # node required by yt-dlp for YouTube
 
 # 2. Create and activate a virtual environment
 python3.12 -m venv .venv
 source .venv/bin/activate
 
-# 3. Install the package
-pip install -e .
+# 3. Core + separation backends (covers stem splitting)
+pip install -e ".[separation,mdx]"
 
-# 4. Install ML dependencies
-#    Source separation (PyTorch)
-pip install demucs
-
-#    Transcription (TensorFlow — guitar, bass, vocals)
-pip install basic-pitch crepe
-
-#    Drum transcription
-pip install madmom ADTLib
-
-#    Guitar Pro output
-pip install pyguitarpro
+# 4. Optional: tab generation
+pip install -e ".[transcription,output]"
+pip install "Cython<3" "numpy<2" && pip install -e ".[drums]"
 ```
 
 > **Dependency note**: `basic-pitch` and `demucs` use TensorFlow and PyTorch respectively.
 > Both coexist on Apple Silicon. If you hit conflicts on other platforms, use a
 > [conda environment](https://docs.conda.io/en/latest/) instead of venv.
-
-### ffmpeg
-
-```bash
-brew install ffmpeg        # macOS
-sudo apt install ffmpeg    # Ubuntu/Debian
-```
 
 ## Usage
 

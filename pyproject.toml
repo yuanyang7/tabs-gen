@@ -24,11 +24,13 @@ dependencies = [
 
 [project.optional-dependencies]
 separation = ["demucs>=4.0.0", "torch>=2.0.0", "torchaudio>=2.0.0"]
+mdx = ["audio-separator[cpu]>=0.44.0"]
 transcription = ["basic-pitch>=0.3.0", "crepe>=0.0.14"]
 drums = ["ADTLib>=1.0.0", "madmom>=0.16.1"]
 output = ["pyguitarpro>=0.10.0"]
 all = [
     "tabs-gen[separation]",
+    "tabs-gen[mdx]",
     "tabs-gen[transcription]",
     "tabs-gen[drums]",
     "tabs-gen[output]",
