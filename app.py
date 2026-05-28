@@ -80,6 +80,16 @@ def _apply_preset(key: str):
 # Pipeline runner (streaming generator)
 # --------------------------------------------------------------------------- #
 
+# Map substrings found in log lines → (progress_fraction, label)
+_STAGE_PROGRESS: list[tuple[str, float, str]] = [
+    ("Stage 1: Source separation",  0.08, "Separating stems…"),
+    ("Stage 1b: Compressing",       0.82, "Compressing to MP3…"),
+    ("Stage 2+3: Transcription",    0.88, "Transcribing instruments…"),
+    ("Stage 4: Rendering",          0.96, "Rendering output…"),
+    ("Pipeline complete",           1.00, "Done!"),
+]
+
+
 def _run(
     audio_file: str | None,
     youtube_url: str,
@@ -96,13 +106,15 @@ def _run(
     frame_threshold: float,
     crepe_model: str,
     title: str,
+    progress: gr.Progress = gr.Progress(track_tqdm=True),
 ):
     """Generator — yields (logs, 6×stem_audio, downloads, stems_dir_state)."""
 
     from tabs_gen.pipeline import PipelineConfig, run_pipeline
     from tabs_gen.utils.youtube import download_audio
 
-    log_q: queue.Queue[str | None] = queue.Queue()
+    # Items in log_q: str (log line) | ("prog", float, str) | None (sentinel)
+    log_q: queue.Queue = queue.Queue()
     result_box: dict = {}
 
     handler = _QueueHandler(log_q)
@@ -119,6 +131,9 @@ def _run(
                  "urllib3", "filelock", "fsspec", "audioread", "resampy"):
         logging.getLogger(_lib).setLevel(logging.WARNING)
 
+    def _push_prog(val: float, desc: str = "") -> None:
+        log_q.put(("prog", val, desc))
+
     def _worker() -> None:
         try:
             _title      = (title       or "").strip()
@@ -128,7 +143,9 @@ def _run(
 
             if _youtube:
                 log_q.put("[UI] Detected YouTube URL — downloading audio…")
+                _push_prog(0.03, "Downloading from YouTube…")
                 resolved = download_audio(_youtube, out_path)
+                _push_prog(0.07, "Download complete — starting pipeline…")
                 song_name = _title or resolved.stem
                 song_dir  = out_path / song_name
                 song_dir.mkdir(parents=True, exist_ok=True)
@@ -176,18 +193,32 @@ def _run(
     # 6 stem audios + downloads + stems_dir state
     _empty = [None] * len(STEM_NAMES) + [[], None]
 
+    progress(0, desc="Starting…")
+
     while True:
         try:
-            msg = log_q.get(timeout=0.25)
+            item = log_q.get(timeout=0.25)
         except queue.Empty:
             if not thread.is_alive():
                 break
             yield ["\n".join(log_lines)] + _empty
             continue
 
-        if msg is None:
+        if item is None:                        # sentinel — done
             break
-        log_lines.append(msg)
+
+        if isinstance(item, tuple):             # ("prog", value, desc)
+            _, val, desc = item
+            progress(val, desc=desc)
+            yield ["\n".join(log_lines)] + _empty
+            continue
+
+        # Plain log line — also check for stage markers
+        log_lines.append(item)
+        for marker, val, desc in _STAGE_PROGRESS:
+            if marker in item:
+                progress(val, desc=desc)
+                break
         yield ["\n".join(log_lines)] + _empty
 
     thread.join()
@@ -195,6 +226,7 @@ def _run(
     root.setLevel(prev_level)
 
     if "error" in result_box:
+        progress(1.0, desc="Failed")
         log_lines.append(f"\n❌  {result_box['error']}")
         yield ["\n".join(log_lines)] + _empty
         return
@@ -217,6 +249,7 @@ def _run(
     if result.gp5_path and result.gp5_path.exists():
         downloads.append(str(result.gp5_path))
 
+    progress(1.0, desc="Done!")
     log_lines.append(
         f"\n✅  Done in {result.elapsed_seconds:.1f}s\n"
         f"   Stems → {stems_dir}"
