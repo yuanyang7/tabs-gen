@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import subprocess
 import threading
 from pathlib import Path
 
@@ -38,7 +39,6 @@ PRESETS = {
     "fast": dict(
         backend="demucs",
         model="htdemucs",
-        device="mps",
         shifts=1,
         generate_tabs=False,
         crepe_model="tiny",
@@ -47,7 +47,6 @@ PRESETS = {
     "balanced": dict(
         backend="demucs",
         model="htdemucs_ft",
-        device="mps",
         shifts=4,
         generate_tabs=False,
         crepe_model="medium",
@@ -55,8 +54,7 @@ PRESETS = {
     ),
     "best": dict(
         backend="mdx",
-        model="htdemucs_ft",   # not used by MDX, but keep it for display
-        device="mps",
+        model="htdemucs_ft",   # not used by MDX, kept for display
         shifts=10,
         generate_tabs=False,
         crepe_model="full",
@@ -99,7 +97,7 @@ def _run(
     crepe_model: str,
     title: str,
 ):
-    """Generator — yields 9-tuples: (logs, 6×stem_audio, downloads)."""
+    """Generator — yields (logs, 6×stem_audio, downloads, stems_dir_state)."""
 
     from tabs_gen.pipeline import PipelineConfig, run_pipeline
     from tabs_gen.utils.youtube import download_audio
@@ -116,16 +114,15 @@ def _run(
     root.addHandler(handler)
     root.setLevel(logging.DEBUG)
 
-    # Suppress debug noise from third-party libraries
-    for _noisy in ("matplotlib", "PIL", "numba", "torch", "torchaudio",
-                   "urllib3", "filelock", "fsspec", "audioread", "resampy"):
-        logging.getLogger(_noisy).setLevel(logging.WARNING)
+    # Suppress DEBUG noise from third-party libraries
+    for _lib in ("matplotlib", "PIL", "numba", "torch", "torchaudio",
+                 "urllib3", "filelock", "fsspec", "audioread", "resampy"):
+        logging.getLogger(_lib).setLevel(logging.WARNING)
 
     def _worker() -> None:
         try:
-            # Gradio sends None for empty text fields — normalise to ""
-            _title      = (title      or "").strip()
-            _output_dir = (output_dir or "").strip()
+            _title      = (title       or "").strip()
+            _output_dir = (output_dir  or "").strip()
             _youtube    = (youtube_url or "").strip()
             out_path = Path(_output_dir or str(Path.home() / "Music" / "tabs-gen"))
 
@@ -133,14 +130,14 @@ def _run(
                 log_q.put("[UI] Detected YouTube URL — downloading audio…")
                 resolved = download_audio(_youtube, out_path)
                 song_name = _title or resolved.stem
-                song_dir = out_path / song_name
+                song_dir  = out_path / song_name
                 song_dir.mkdir(parents=True, exist_ok=True)
-                resolved = resolved.rename(song_dir / resolved.name)
+                resolved  = resolved.rename(song_dir / resolved.name)
 
             elif audio_file:
-                resolved = Path(audio_file)
+                resolved  = Path(audio_file)
                 song_name = _title or resolved.stem
-                song_dir = out_path / song_name
+                song_dir  = out_path / song_name
 
             else:
                 result_box["error"] = "Please upload an audio file or paste a YouTube URL."
@@ -156,7 +153,7 @@ def _run(
                 onset_threshold=float(onset_threshold),
                 frame_threshold=float(frame_threshold),
                 crepe_model=crepe_model,
-                formats=list(formats) if formats else ["ascii"],
+                formats=list(formats)     if formats     else ["ascii"],
                 instruments=list(instruments) if instruments else list(STEM_NAMES[:4]),
                 title=_title or resolved.stem,
                 generate_tabs=generate_tabs,
@@ -176,7 +173,8 @@ def _run(
     thread.start()
 
     log_lines: list[str] = []
-    _empty = [None] * len(STEM_NAMES) + [[]]
+    # 6 stem audios + downloads + stems_dir state
+    _empty = [None] * len(STEM_NAMES) + [[], None]
 
     while True:
         try:
@@ -225,12 +223,61 @@ def _run(
         + (f"\n   ASCII  → {result.ascii_path}" if result.ascii_path else "")
         + (f"\n   GP5    → {result.gp5_path}"   if result.gp5_path   else "")
     )
-    yield ["\n".join(log_lines)] + stem_audio + [downloads]
+    yield ["\n".join(log_lines)] + stem_audio + [downloads, str(stems_dir)]
+
+
+# --------------------------------------------------------------------------- #
+# Custom mix
+# --------------------------------------------------------------------------- #
+
+def _create_mix(stems_dir: str | None, selected: list[str]) -> tuple[str | None, str]:
+    """Combine selected stems into a single MP3 using ffmpeg amix."""
+    if not stems_dir:
+        return None, "⚠️ Run the pipeline first to generate stems."
+    if not selected:
+        return None, "⚠️ Select at least one stem."
+
+    stems_path = Path(stems_dir)
+    files = [stems_path / f"{s}.mp3" for s in selected if (stems_path / f"{s}.mp3").exists()]
+    missing = [s for s in selected if not (stems_path / f"{s}.mp3").exists()]
+
+    if not files:
+        return None, f"⚠️ No stems found in {stems_dir}"
+
+    msg_parts = []
+    if missing:
+        msg_parts.append(f"(stems not found: {', '.join(missing)} — skipped)")
+
+    if len(files) == 1:
+        msg_parts.insert(0, f"Only one stem available — returning {files[0].name} as-is.")
+        return str(files[0]), " ".join(msg_parts)
+
+    tag   = "_".join(sorted(selected))
+    out   = stems_path / f"mix_{tag}.mp3"
+    cmd   = ["ffmpeg", "-y"]
+    for f in files:
+        cmd += ["-i", str(f)]
+    cmd  += [
+        "-filter_complex",
+        f"amix=inputs={len(files)}:duration=longest:normalize=0",
+        "-b:a", "320k",
+        str(out),
+    ]
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        return None, f"❌ ffmpeg error:\n{e.stderr.decode()}"
+
+    msg_parts.insert(0, f"✅ Mixed {len(files)} stems → {out.name}")
+    return str(out), " ".join(msg_parts)
 
 
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
+
+_best = PRESETS["best"]   # used for initial component values
 
 with gr.Blocks(title="tabs-gen") as demo:
 
@@ -238,6 +285,9 @@ with gr.Blocks(title="tabs-gen") as demo:
         "# 🎸 tabs-gen\n"
         "Split any audio into instrument stems — and optionally generate guitar tabs."
     )
+
+    # Persist stems directory across callbacks so the mix section can use it
+    stems_dir_state = gr.State(value=None)
 
     with gr.Row(equal_height=False):
 
@@ -253,9 +303,7 @@ with gr.Blocks(title="tabs-gen") as demo:
                 btn_balanced = gr.Button("⭐  Balanced",     variant="secondary")
                 btn_best     = gr.Button("🏆  Best Quality", variant="secondary")
 
-            preset_desc = gr.Markdown(
-                "_Pick a preset above, or tweak the settings below manually._"
-            )
+            preset_desc = gr.Markdown(f"_{_best['desc']}_")
 
             gr.Markdown("---")
 
@@ -275,21 +323,22 @@ with gr.Blocks(title="tabs-gen") as demo:
 
                 backend = gr.Radio(
                     choices=[
-                        ("demucs  — faster, 4 or 6 stems",       "demucs"),
-                        ("mdx  🏆 best quality, 4 stems",         "mdx"),
+                        ("demucs  — faster, 4 or 6 stems",  "demucs"),
+                        ("mdx  🏆 best quality, 4 stems",    "mdx"),
                     ],
-                    value="demucs",
+                    value=_best["backend"],
                     label="Separation backend",
                 )
                 model = gr.Dropdown(
                     choices=[
-                        ("htdemucs  — ⚡ fast, solid quality",         "htdemucs"),
-                        ("htdemucs_ft  — ⭐ fine-tuned, best 4-stem",  "htdemucs_ft"),
-                        ("htdemucs_6s  — adds piano + other stems",    "htdemucs_6s"),
+                        ("htdemucs  — ⚡ fast, solid quality",        "htdemucs"),
+                        ("htdemucs_ft  — ⭐ fine-tuned, best 4-stem", "htdemucs_ft"),
+                        ("htdemucs_6s  — adds piano + other stems",   "htdemucs_6s"),
                     ],
-                    value="htdemucs",
+                    value=_best["model"],
                     label="Demucs model",
-                    info="Hidden when MDX backend is selected (MDX uses its own model).",
+                    info="Hidden when MDX backend is selected.",
+                    visible=(_best["backend"] == "demucs"),
                 )
                 device = gr.Radio(
                     choices=[
@@ -301,7 +350,7 @@ with gr.Blocks(title="tabs-gen") as demo:
                     label="Device",
                 )
                 shifts = gr.Slider(
-                    minimum=1, maximum=10, value=1, step=1,
+                    minimum=1, maximum=10, value=_best["shifts"], step=1,
                     label="Test-time shifts",
                     info="1 = fastest  ·  4 = balanced  ·  10 = best quality (slowest)",
                 )
@@ -343,11 +392,11 @@ with gr.Blocks(title="tabs-gen") as demo:
                     choices=[
                         ("tiny   — ⚡ fastest",               "tiny"),
                         ("small",                              "small"),
-                        ("medium — ⭐ balanced (default)",    "medium"),
+                        ("medium — ⭐ balanced",              "medium"),
                         ("large",                              "large"),
                         ("full   — 🏆 best quality, slowest", "full"),
                     ],
-                    value="medium",
+                    value=_best["crepe_model"],
                     label="CREPE model (vocal pitch accuracy)",
                 )
                 output_dir = gr.Textbox(
@@ -370,8 +419,8 @@ with gr.Blocks(title="tabs-gen") as demo:
 
             logs = gr.Textbox(
                 label="Pipeline log",
-                lines=14,
-                max_lines=40,
+                lines=12,
+                max_lines=12,       # fixed height — scrolls instead of growing
                 autoscroll=True,
             )
 
@@ -389,24 +438,36 @@ with gr.Blocks(title="tabs-gen") as demo:
             gr.Markdown("### 📄 Tab files")
             download_files = gr.Files(label="Download ASCII / GP5 tabs", interactive=False)
 
+            # ── Custom mix ────────────────────────────────────────────────
+            gr.Markdown("### 🎛️ Custom Mix")
+            gr.Markdown(
+                "Select which stems to combine (or exclude). "
+                "Available after a run completes."
+            )
+            mix_checks = gr.CheckboxGroup(
+                choices=STEM_NAMES,
+                value=["vocals", "guitar", "bass", "drums"],
+                label="Stems to include in mix",
+            )
+            mix_btn    = gr.Button("🎚️  Create Mix", variant="secondary")
+            mix_status = gr.Markdown("")
+            mix_audio  = gr.Audio(label="Custom mix output", type="filepath", interactive=False)
+
     # ----------------------------------------------------------------------- #
     # Wiring
     # ----------------------------------------------------------------------- #
 
     _preset_outputs = [backend, model, shifts, generate_tabs, crepe_model, preset_desc]
-
     btn_fast    .click(fn=lambda: _apply_preset("fast"),     outputs=_preset_outputs)
     btn_balanced.click(fn=lambda: _apply_preset("balanced"), outputs=_preset_outputs)
     btn_best    .click(fn=lambda: _apply_preset("best"),     outputs=_preset_outputs)
 
-    # Show/hide tab warning + options when the checkbox is toggled
     generate_tabs.change(
         fn=lambda v: (gr.update(visible=v), gr.update(visible=v)),
         inputs=generate_tabs,
         outputs=[tab_warning, tab_options],
     )
 
-    # Hide the Demucs model dropdown when MDX backend is chosen
     backend.change(
         fn=lambda b: gr.update(visible=(b == "demucs")),
         inputs=backend,
@@ -424,10 +485,17 @@ with gr.Blocks(title="tabs-gen") as demo:
         logs,
         stem_vocals, stem_guitar, stem_bass, stem_drums, stem_piano, stem_other,
         download_files,
+        stems_dir_state,
     ]
 
     run_event = run_btn.click(fn=_run, inputs=all_inputs, outputs=all_outputs)
     stop_btn.click(fn=None, cancels=[run_event])
+
+    mix_btn.click(
+        fn=_create_mix,
+        inputs=[stems_dir_state, mix_checks],
+        outputs=[mix_audio, mix_status],
+    )
 
 
 # --------------------------------------------------------------------------- #
