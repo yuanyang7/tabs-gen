@@ -237,11 +237,15 @@ def _run(
         yield ["\n".join(log_lines)] + _empty
         return
 
-    stems_dir = cfg.output_dir / "stems" / cfg.backend_label
+    # Use the paths the pipeline actually resolved — avoids guessing nested dirs
+    mp3_paths: dict[str, Path] = result.mp3_stem_paths or result.stem_paths
     stem_audio: list[str | None] = []
     for name in STEM_NAMES:
-        mp3 = stems_dir / f"{name}.mp3"
-        stem_audio.append(str(mp3) if mp3.exists() else None)
+        p = mp3_paths.get(name)
+        stem_audio.append(str(p) if p and p.exists() else None)
+
+    # JSON-serialisable dict stored in gr.State for the mix callback
+    stem_paths_state = {k: str(v) for k, v in mp3_paths.items() if v and v.exists()}
 
     downloads: list[str] = []
     if result.ascii_path and result.ascii_path.exists():
@@ -249,48 +253,50 @@ def _run(
     if result.gp5_path and result.gp5_path.exists():
         downloads.append(str(result.gp5_path))
 
+    found = [n for n in STEM_NAMES if n in stem_paths_state]
     progress(1.0, desc="Done!")
     log_lines.append(
         f"\n✅  Done in {result.elapsed_seconds:.1f}s\n"
-        f"   Stems → {stems_dir}"
+        f"   Stems: {', '.join(found)}"
         + (f"\n   ASCII  → {result.ascii_path}" if result.ascii_path else "")
         + (f"\n   GP5    → {result.gp5_path}"   if result.gp5_path   else "")
     )
-    yield ["\n".join(log_lines)] + stem_audio + [downloads, str(stems_dir)]
+    yield ["\n".join(log_lines)] + stem_audio + [downloads, stem_paths_state]
 
 
 # --------------------------------------------------------------------------- #
 # Custom mix
 # --------------------------------------------------------------------------- #
 
-def _create_mix(stems_dir: str | None, selected: list[str]) -> tuple[str | None, str]:
+def _create_mix(stem_paths_state: dict | None, selected: list[str]) -> tuple[str | None, str]:
     """Combine selected stems into a single MP3 using ffmpeg amix."""
-    if not stems_dir:
+    if not stem_paths_state:
         return None, "⚠️ Run the pipeline first to generate stems."
     if not selected:
         return None, "⚠️ Select at least one stem."
 
-    stems_path = Path(stems_dir)
-    files = [stems_path / f"{s}.mp3" for s in selected if (stems_path / f"{s}.mp3").exists()]
-    missing = [s for s in selected if not (stems_path / f"{s}.mp3").exists()]
+    files   = [Path(stem_paths_state[s]) for s in selected if s in stem_paths_state]
+    missing = [s for s in selected if s not in stem_paths_state]
 
     if not files:
-        return None, f"⚠️ No stems found in {stems_dir}"
+        return None, "⚠️ None of the selected stems were found in the last run."
 
     msg_parts = []
     if missing:
-        msg_parts.append(f"(stems not found: {', '.join(missing)} — skipped)")
+        msg_parts.append(f"(not generated: {', '.join(missing)} — skipped)")
 
     if len(files) == 1:
-        msg_parts.insert(0, f"Only one stem available — returning {files[0].name} as-is.")
+        msg_parts.insert(0, f"Only one stem — returning {files[0].name} as-is.")
         return str(files[0]), " ".join(msg_parts)
 
-    tag   = "_".join(sorted(selected))
-    out   = stems_path / f"mix_{tag}.mp3"
-    cmd   = ["ffmpeg", "-y"]
+    # Write the mix next to the stems
+    out_dir = files[0].parent
+    tag     = "_".join(sorted(selected))
+    out     = out_dir / f"mix_{tag}.mp3"
+    cmd     = ["ffmpeg", "-y"]
     for f in files:
         cmd += ["-i", str(f)]
-    cmd  += [
+    cmd += [
         "-filter_complex",
         f"amix=inputs={len(files)}:duration=longest:normalize=0",
         "-b:a", "320k",
@@ -319,8 +325,8 @@ with gr.Blocks(title="tabs-gen") as demo:
         "Split any audio into instrument stems — and optionally generate guitar tabs."
     )
 
-    # Persist stems directory across callbacks so the mix section can use it
-    stems_dir_state = gr.State(value=None)
+    # Persist resolved stem paths (dict name→path) so the mix section can use them
+    stems_dir_state = gr.State(value=None)  # holds dict[str, str]
 
     with gr.Row(equal_height=False):
 
@@ -543,4 +549,6 @@ if __name__ == "__main__":
         share=False,
         inbrowser=True,
         theme=gr.themes.Soft(),
+        # Allow Gradio to serve files from the home dir (stems live outside tmp)
+        allowed_paths=[str(Path.home())],
     )
