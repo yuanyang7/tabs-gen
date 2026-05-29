@@ -346,6 +346,11 @@ def _create_mix(stem_paths_state: dict | None, selected: list[str]) -> tuple[str
 
 _best = PRESETS["best"]   # used for initial component values
 
+# Native browser <audio> player: a single seek bar covering the full song.
+# Gradio's default waveform view (WaveSurfer) zooms in at 20px/sec and
+# scrolls for long songs — the native player avoids that entirely.
+_AUDIO_OPTS = gr.WaveformOptions(show_recording_waveform=False)
+
 with gr.Blocks(title="tabs-gen") as demo:
 
     gr.Markdown(
@@ -496,14 +501,14 @@ with gr.Blocks(title="tabs-gen") as demo:
 
             gr.Markdown("### 🎵 Stems")
             with gr.Row():
-                stem_vocals = gr.Audio(label="Vocals", type="filepath", interactive=False)
-                stem_guitar = gr.Audio(label="Guitar", type="filepath", interactive=False)
+                stem_vocals = gr.Audio(label="Vocals", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
+                stem_guitar = gr.Audio(label="Guitar", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
             with gr.Row():
-                stem_bass  = gr.Audio(label="Bass",  type="filepath", interactive=False)
-                stem_drums = gr.Audio(label="Drums", type="filepath", interactive=False)
+                stem_bass  = gr.Audio(label="Bass",  type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
+                stem_drums = gr.Audio(label="Drums", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
             with gr.Row():
-                stem_piano = gr.Audio(label="Piano", type="filepath", interactive=False)
-                stem_other = gr.Audio(label="Other", type="filepath", interactive=False)
+                stem_piano = gr.Audio(label="Piano", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
+                stem_other = gr.Audio(label="Other", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
 
             gr.Markdown("### 📄 Tab files")
             download_files = gr.Files(label="Download ASCII / GP5 tabs", interactive=False)
@@ -521,7 +526,7 @@ with gr.Blocks(title="tabs-gen") as demo:
             )
             mix_btn    = gr.Button("🎚️  Create Mix", variant="secondary")
             mix_status = gr.Markdown("")
-            mix_audio  = gr.Audio(label="Custom mix output", type="filepath", interactive=False)
+            mix_audio  = gr.Audio(label="Custom mix output", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
 
     # ----------------------------------------------------------------------- #
     # Wiring
