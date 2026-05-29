@@ -77,6 +77,28 @@ def _apply_preset(key: str):
 
 
 # --------------------------------------------------------------------------- #
+# Progress bar HTML helper
+# --------------------------------------------------------------------------- #
+
+def _prog_html(val: float, desc: str = "") -> str:
+    """Return an HTML progress bar string (0.0 – 1.0)."""
+    if val <= 0 and not desc:
+        return ""
+    pct = min(100, max(0, int(val * 100)))
+    color = "#22c55e" if pct >= 100 else "#818cf8"
+    return (
+        '<div style="margin:6px 0 10px">'
+        f'<div style="background:#e5e7eb;border-radius:6px;height:14px;overflow:hidden">'
+        f'<div style="background:{color};height:100%;width:{pct}%;'
+        'transition:width 0.4s ease;border-radius:6px"></div>'
+        '</div>'
+        f'<div style="font-size:12px;color:#6b7280;margin-top:4px">'
+        f'{desc}&nbsp;<span style="float:right">{pct}%</span></div>'
+        '</div>'
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Pipeline runner (streaming generator)
 # --------------------------------------------------------------------------- #
 
@@ -106,9 +128,8 @@ def _run(
     frame_threshold: float,
     crepe_model: str,
     title: str,
-    progress: gr.Progress = gr.Progress(track_tqdm=True),
 ):
-    """Generator — yields (logs, 6×stem_audio, downloads, stems_dir_state)."""
+    """Generator — yields (logs, prog_html, 6×stem_audio, downloads, stems_dir_state)."""
 
     from tabs_gen.pipeline import PipelineConfig, run_pipeline
     from tabs_gen.utils.youtube import download_audio
@@ -190,10 +211,18 @@ def _run(
     thread.start()
 
     log_lines: list[str] = []
-    # 6 stem audios + downloads + stems_dir state
-    _empty = [None] * len(STEM_NAMES) + [[], None]
+    cur_prog = 0.0
+    cur_desc = "Starting…"
 
-    progress(0, desc="Starting…")
+    # 6 stem audios + downloads + stems_dir state — placeholder for partial yields
+    _stem_empty: list = [None] * len(STEM_NAMES)
+    _tail_empty: list = [[], None]
+
+    def _partial():
+        """Current state yield while pipeline is still running."""
+        return ["\n".join(log_lines), _prog_html(cur_prog, cur_desc)] + _stem_empty + _tail_empty
+
+    yield _partial()  # initial render with progress bar at 0%
 
     while True:
         try:
@@ -201,40 +230,38 @@ def _run(
         except queue.Empty:
             if not thread.is_alive():
                 break
-            yield ["\n".join(log_lines)] + _empty
+            yield _partial()
             continue
 
         if item is None:                        # sentinel — done
             break
 
         if isinstance(item, tuple):             # ("prog", value, desc)
-            _, val, desc = item
-            progress(val, desc=desc)
-            yield ["\n".join(log_lines)] + _empty
+            _, cur_prog, cur_desc = item
+            yield _partial()
             continue
 
         # Plain log line — also check for stage markers
         log_lines.append(item)
         for marker, val, desc in _STAGE_PROGRESS:
             if marker in item:
-                progress(val, desc=desc)
+                cur_prog, cur_desc = val, desc
                 break
-        yield ["\n".join(log_lines)] + _empty
+        yield _partial()
 
     thread.join()
     root.removeHandler(handler)
     root.setLevel(prev_level)
 
     if "error" in result_box:
-        progress(1.0, desc="Failed")
         log_lines.append(f"\n❌  {result_box['error']}")
-        yield ["\n".join(log_lines)] + _empty
+        yield ["\n".join(log_lines), _prog_html(1.0, "Failed ❌")] + _stem_empty + _tail_empty
         return
 
     result = result_box.get("result")
     cfg    = result_box.get("config")
     if result is None:
-        yield ["\n".join(log_lines)] + _empty
+        yield _partial()
         return
 
     # Use the paths the pipeline actually resolved — avoids guessing nested dirs
@@ -253,7 +280,6 @@ def _run(
     if result.gp5_path and result.gp5_path.exists():
         downloads.append(str(result.gp5_path))
 
-    progress(1.0, desc="Done!")
     stem_lines = "\n".join(
         f"   {name:<8} → {path}" for name, path in stem_paths_state.items()
     )
@@ -263,7 +289,7 @@ def _run(
         + (f"\n── Tabs ──\n   ASCII → {result.ascii_path}" if result.ascii_path else "")
         + (f"\n   GP5   → {result.gp5_path}"               if result.gp5_path   else "")
     )
-    yield ["\n".join(log_lines)] + stem_audio + [downloads, stem_paths_state]
+    yield ["\n".join(log_lines), _prog_html(1.0, "Done ✅")] + stem_audio + [downloads, stem_paths_state]
 
 
 # --------------------------------------------------------------------------- #
@@ -319,10 +345,6 @@ def _create_mix(stem_paths_state: dict | None, selected: list[str]) -> tuple[str
 # --------------------------------------------------------------------------- #
 
 _best = PRESETS["best"]   # used for initial component values
-
-# Native browser <audio> player: always shows the full song range as a seek bar.
-# Gradio's waveform view zooms in (20px/sec) and scrolls for long songs.
-_AUDIO_OPTS = gr.WaveformOptions(show_recording_waveform=False)
 
 with gr.Blocks(title="tabs-gen") as demo:
 
@@ -469,16 +491,19 @@ with gr.Blocks(title="tabs-gen") as demo:
                 autoscroll=True,
             )
 
+            # Explicit HTML progress bar — updates on every yield
+            prog_bar = gr.HTML(value="", elem_id="tabs-gen-progress")
+
             gr.Markdown("### 🎵 Stems")
             with gr.Row():
-                stem_vocals = gr.Audio(label="Vocals", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
-                stem_guitar = gr.Audio(label="Guitar", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
+                stem_vocals = gr.Audio(label="Vocals", type="filepath", interactive=False)
+                stem_guitar = gr.Audio(label="Guitar", type="filepath", interactive=False)
             with gr.Row():
-                stem_bass  = gr.Audio(label="Bass",  type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
-                stem_drums = gr.Audio(label="Drums", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
+                stem_bass  = gr.Audio(label="Bass",  type="filepath", interactive=False)
+                stem_drums = gr.Audio(label="Drums", type="filepath", interactive=False)
             with gr.Row():
-                stem_piano = gr.Audio(label="Piano", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
-                stem_other = gr.Audio(label="Other", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
+                stem_piano = gr.Audio(label="Piano", type="filepath", interactive=False)
+                stem_other = gr.Audio(label="Other", type="filepath", interactive=False)
 
             gr.Markdown("### 📄 Tab files")
             download_files = gr.Files(label="Download ASCII / GP5 tabs", interactive=False)
@@ -496,7 +521,7 @@ with gr.Blocks(title="tabs-gen") as demo:
             )
             mix_btn    = gr.Button("🎚️  Create Mix", variant="secondary")
             mix_status = gr.Markdown("")
-            mix_audio  = gr.Audio(label="Custom mix output", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
+            mix_audio  = gr.Audio(label="Custom mix output", type="filepath", interactive=False)
 
     # ----------------------------------------------------------------------- #
     # Wiring
@@ -528,6 +553,7 @@ with gr.Blocks(title="tabs-gen") as demo:
     ]
     all_outputs = [
         logs,
+        prog_bar,
         stem_vocals, stem_guitar, stem_bass, stem_drums, stem_piano, stem_other,
         download_files,
         stems_dir_state,
@@ -537,7 +563,6 @@ with gr.Blocks(title="tabs-gen") as demo:
         fn=_run,
         inputs=all_inputs,
         outputs=all_outputs,
-        show_progress="full",   # shows the gr.Progress bar prominently
     )
     stop_btn.click(fn=None, cancels=[run_event])
 
