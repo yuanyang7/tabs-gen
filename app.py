@@ -73,6 +73,7 @@ def _apply_preset(key: str):
         gr.update(value=p["generate_tabs"]),
         gr.update(value=p["crepe_model"]),
         gr.update(value=p["desc"]),
+        key,   # preset_state
     )
 
 
@@ -173,6 +174,7 @@ def _run(
     frame_threshold: float,
     crepe_model: str,
     title: str,
+    preset_name: str,
 ):
     """Generator — yields (logs, prog_html, 6×stem_html, downloads, stems_dir_state)."""
 
@@ -199,10 +201,14 @@ def _run(
         log_q.put(("prog", val, desc))
 
     def _worker() -> None:
+        import json
+        from datetime import datetime
+
         try:
             _title      = (title       or "").strip()
             _output_dir = (output_dir  or "").strip()
             _youtube    = (youtube_url or "").strip()
+            _preset     = (preset_name or "custom").strip()
             out_path = Path(_output_dir or str(Path.home() / "Music" / "tabs-gen"))
 
             if _youtube:
@@ -211,18 +217,42 @@ def _run(
                 resolved = download_audio(_youtube, out_path)
                 _push_prog(0.07, "Download complete — starting pipeline…")
                 song_name = _title or resolved.stem
-                song_dir  = out_path / song_name
+                song_dir  = out_path / f"{song_name}_{_preset}"
                 song_dir.mkdir(parents=True, exist_ok=True)
                 resolved  = resolved.rename(song_dir / resolved.name)
 
             elif audio_file:
                 resolved  = Path(audio_file)
                 song_name = _title or resolved.stem
-                song_dir  = out_path / song_name
+                song_dir  = out_path / f"{song_name}_{_preset}"
 
             else:
                 result_box["error"] = "Please upload an audio file or paste a YouTube URL."
                 return
+
+            # Save config snapshot so the run can be reproduced later
+            song_dir.mkdir(parents=True, exist_ok=True)
+            config_snapshot = {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "preset": _preset,
+                "audio_source": _youtube or str(resolved),
+                "title": _title or resolved.stem,
+                "backend": backend,
+                "model": model,
+                "device": device,
+                "shifts": int(shifts),
+                "generate_tabs": generate_tabs,
+                "crepe_model": crepe_model,
+                "onset_threshold": float(onset_threshold),
+                "frame_threshold": float(frame_threshold),
+                "instruments": list(instruments) if instruments else list(STEM_NAMES[:4]),
+                "formats": list(formats) if formats else ["ascii"],
+                "keep_wav": keep_wav,
+                "output_dir": str(song_dir),
+            }
+            config_path = song_dir / "config.json"
+            config_path.write_text(json.dumps(config_snapshot, indent=2))
+            log_q.put(f"[UI] Config saved → {config_path}")
 
             cfg = PipelineConfig(
                 audio_path=resolved,
@@ -390,6 +420,7 @@ with gr.Blocks(title="tabs-gen") as demo:
     )
 
     stems_dir_state = gr.State(value=None)
+    preset_state    = gr.State(value="best")   # tracks which preset button was last clicked
 
     with gr.Row(equal_height=False):
 
@@ -555,7 +586,7 @@ with gr.Blocks(title="tabs-gen") as demo:
     # Wiring
     # ----------------------------------------------------------------------- #
 
-    _preset_outputs = [backend, model, shifts, generate_tabs, crepe_model, preset_desc]
+    _preset_outputs = [backend, model, shifts, generate_tabs, crepe_model, preset_desc, preset_state]
     btn_fast    .click(fn=lambda: _apply_preset("fast"),     outputs=_preset_outputs)
     btn_balanced.click(fn=lambda: _apply_preset("balanced"), outputs=_preset_outputs)
     btn_best    .click(fn=lambda: _apply_preset("best"),     outputs=_preset_outputs)
@@ -578,6 +609,7 @@ with gr.Blocks(title="tabs-gen") as demo:
         instruments, formats, generate_tabs, keep_wav,
         onset_threshold, frame_threshold, crepe_model,
         title_input,
+        preset_state,
     ]
     all_outputs = [
         logs,
