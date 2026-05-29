@@ -99,6 +99,51 @@ def _prog_html(val: float, desc: str = "") -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Audio player HTML helper
+# --------------------------------------------------------------------------- #
+
+def _audio_html(path: str | None, label: str) -> str:
+    """Render a native HTML5 audio player for a stem file.
+
+    Uses preload="metadata" so the browser fetches just the audio headers —
+    the duration appears immediately in the seek bar without the user having
+    to click play first.  The seek bar shows the full song (no scrolling).
+    """
+    icon = "🎵"
+    header = (
+        f'<div style="display:flex;align-items:center;justify-content:space-between;'
+        f'margin-bottom:6px">'
+        f'<span style="font-weight:600;font-size:14px">{icon} {label}</span>'
+    )
+
+    if not path:
+        return (
+            header
+            + '<span style="font-size:11px;color:#6b7280">not generated</span></div>'
+            + '<div style="background:#1f2937;border-radius:8px;height:48px;'
+            'display:flex;align-items:center;justify-content:center;color:#4b5563;font-size:12px">'
+            'No audio</div>'
+        )
+
+    url = f"/gradio_api/file={path}"
+    return (
+        header
+        + f'<a href="{url}" download style="font-size:11px;color:#818cf8;text-decoration:none">'
+        '⬇ download</a></div>'
+        f'<audio controls preload="metadata" '
+        f'style="width:100%;height:48px;border-radius:8px;outline:none;display:block">'
+        f'<source src="{url}" type="audio/mpeg">'
+        f'</audio>'
+    )
+
+
+def _stems_html(stem_paths: dict[str, str] | None) -> list[str]:
+    """Return a list of HTML strings for all STEM_NAMES, in order."""
+    paths = stem_paths or {}
+    return [_audio_html(paths.get(name), name.capitalize()) for name in STEM_NAMES]
+
+
+# --------------------------------------------------------------------------- #
 # Pipeline runner (streaming generator)
 # --------------------------------------------------------------------------- #
 
@@ -129,12 +174,11 @@ def _run(
     crepe_model: str,
     title: str,
 ):
-    """Generator — yields (logs, prog_html, 6×stem_audio, downloads, stems_dir_state)."""
+    """Generator — yields (logs, prog_html, 6×stem_html, downloads, stems_dir_state)."""
 
     from tabs_gen.pipeline import PipelineConfig, run_pipeline
     from tabs_gen.utils.youtube import download_audio
 
-    # Items in log_q: str (log line) | ("prog", float, str) | None (sentinel)
     log_q: queue.Queue = queue.Queue()
     result_box: dict = {}
 
@@ -147,7 +191,6 @@ def _run(
     root.addHandler(handler)
     root.setLevel(logging.DEBUG)
 
-    # Suppress DEBUG noise from third-party libraries
     for _lib in ("matplotlib", "PIL", "numba", "torch", "torchaudio",
                  "urllib3", "filelock", "fsspec", "audioread", "resampy"):
         logging.getLogger(_lib).setLevel(logging.WARNING)
@@ -214,15 +257,13 @@ def _run(
     cur_prog = 0.0
     cur_desc = "Starting…"
 
-    # 6 stem audios + downloads + stems_dir state — placeholder for partial yields
-    _stem_empty: list = [None] * len(STEM_NAMES)
+    _stem_empty = _stems_html(None)   # placeholder HTML for each stem
     _tail_empty: list = [[], None]
 
     def _partial():
-        """Current state yield while pipeline is still running."""
         return ["\n".join(log_lines), _prog_html(cur_prog, cur_desc)] + _stem_empty + _tail_empty
 
-    yield _partial()  # initial render with progress bar at 0%
+    yield _partial()
 
     while True:
         try:
@@ -233,15 +274,14 @@ def _run(
             yield _partial()
             continue
 
-        if item is None:                        # sentinel — done
+        if item is None:
             break
 
-        if isinstance(item, tuple):             # ("prog", value, desc)
+        if isinstance(item, tuple):
             _, cur_prog, cur_desc = item
             yield _partial()
             continue
 
-        # Plain log line — also check for stage markers
         log_lines.append(item)
         for marker, val, desc in _STAGE_PROGRESS:
             if marker in item:
@@ -264,14 +304,7 @@ def _run(
         yield _partial()
         return
 
-    # Use the paths the pipeline actually resolved — avoids guessing nested dirs
     mp3_paths: dict[str, Path] = result.mp3_stem_paths or result.stem_paths
-    stem_audio: list[str | None] = []
-    for name in STEM_NAMES:
-        p = mp3_paths.get(name)
-        stem_audio.append(str(p) if p and p.exists() else None)
-
-    # JSON-serialisable dict stored in gr.State for the mix callback
     stem_paths_state = {k: str(v) for k, v in mp3_paths.items() if v and v.exists()}
 
     downloads: list[str] = []
@@ -289,25 +322,29 @@ def _run(
         + (f"\n── Tabs ──\n   ASCII → {result.ascii_path}" if result.ascii_path else "")
         + (f"\n   GP5   → {result.gp5_path}"               if result.gp5_path   else "")
     )
-    yield ["\n".join(log_lines), _prog_html(1.0, "Done ✅")] + stem_audio + [downloads, stem_paths_state]
+    yield (
+        ["\n".join(log_lines), _prog_html(1.0, "Done ✅")]
+        + _stems_html(stem_paths_state)
+        + [downloads, stem_paths_state]
+    )
 
 
 # --------------------------------------------------------------------------- #
 # Custom mix
 # --------------------------------------------------------------------------- #
 
-def _create_mix(stem_paths_state: dict | None, selected: list[str]) -> tuple[str | None, str]:
+def _create_mix(stem_paths_state: dict | None, selected: list[str]) -> tuple[str, str]:
     """Combine selected stems into a single MP3 using ffmpeg amix."""
     if not stem_paths_state:
-        return None, "⚠️ Run the pipeline first to generate stems."
+        return "", "⚠️ Run the pipeline first to generate stems."
     if not selected:
-        return None, "⚠️ Select at least one stem."
+        return "", "⚠️ Select at least one stem."
 
     files   = [Path(stem_paths_state[s]) for s in selected if s in stem_paths_state]
     missing = [s for s in selected if s not in stem_paths_state]
 
     if not files:
-        return None, "⚠️ None of the selected stems were found in the last run."
+        return "", "⚠️ None of the selected stems were found in the last run."
 
     msg_parts = []
     if missing:
@@ -315,9 +352,8 @@ def _create_mix(stem_paths_state: dict | None, selected: list[str]) -> tuple[str
 
     if len(files) == 1:
         msg_parts.insert(0, f"Only one stem — returning {files[0].name} as-is.")
-        return str(files[0]), " ".join(msg_parts)
+        return _audio_html(str(files[0]), "Mix"), " ".join(msg_parts)
 
-    # Write the mix next to the stems
     out_dir = files[0].parent
     tag     = "_".join(sorted(selected))
     out     = out_dir / f"mix_{tag}.mp3"
@@ -334,22 +370,17 @@ def _create_mix(stem_paths_state: dict | None, selected: list[str]) -> tuple[str
     try:
         subprocess.run(cmd, check=True, capture_output=True)
     except subprocess.CalledProcessError as e:
-        return None, f"❌ ffmpeg error:\n{e.stderr.decode()}"
+        return "", f"❌ ffmpeg error:\n{e.stderr.decode()}"
 
     msg_parts.insert(0, f"✅ Mixed {len(files)} stems → `{out}`")
-    return str(out), " ".join(msg_parts)
+    return _audio_html(str(out), "Mix"), " ".join(msg_parts)
 
 
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
 
-_best = PRESETS["best"]   # used for initial component values
-
-# Native browser <audio> player: a single seek bar covering the full song.
-# Gradio's default waveform view (WaveSurfer) zooms in at 20px/sec and
-# scrolls for long songs — the native player avoids that entirely.
-_AUDIO_OPTS = gr.WaveformOptions(show_recording_waveform=False)
+_best = PRESETS["best"]
 
 with gr.Blocks(title="tabs-gen") as demo:
 
@@ -358,8 +389,7 @@ with gr.Blocks(title="tabs-gen") as demo:
         "Split any audio into instrument stems — and optionally generate guitar tabs."
     )
 
-    # Persist resolved stem paths (dict name→path) so the mix section can use them
-    stems_dir_state = gr.State(value=None)  # holds dict[str, str]
+    stems_dir_state = gr.State(value=None)
 
     with gr.Row(equal_height=False):
 
@@ -368,7 +398,6 @@ with gr.Blocks(title="tabs-gen") as demo:
         # ------------------------------------------------------------------- #
         with gr.Column(scale=1, min_width=340):
 
-            # ── Quick presets ──────────────────────────────────────────────
             gr.Markdown("### 🚀 Quick presets")
             with gr.Row():
                 btn_fast     = gr.Button("⚡  Fast",         variant="secondary")
@@ -379,7 +408,6 @@ with gr.Blocks(title="tabs-gen") as demo:
 
             gr.Markdown("---")
 
-            # ── Source ────────────────────────────────────────────────────
             audio_file = gr.Audio(
                 label="Audio file (MP3 / WAV / FLAC / …)",
                 type="filepath",
@@ -390,7 +418,6 @@ with gr.Blocks(title="tabs-gen") as demo:
                 placeholder="https://www.youtube.com/watch?v=…",
             )
 
-            # ── Settings ─────────────────────────────────────────────────
             with gr.Accordion("⚙️  Settings", open=True):
 
                 backend = gr.Radio(
@@ -452,14 +479,11 @@ with gr.Blocks(title="tabs-gen") as demo:
                     value=False,
                 )
 
-            # ── Advanced ──────────────────────────────────────────────────
             with gr.Accordion("🔬  Advanced", open=False):
                 onset_threshold = gr.Slider(0.0, 1.0, value=0.5, step=0.05,
-                    label="Onset threshold (basic-pitch)",
-                    info="Lower = more notes detected (more false positives)")
+                    label="Onset threshold (basic-pitch)")
                 frame_threshold = gr.Slider(0.0, 1.0, value=0.3, step=0.05,
-                    label="Frame threshold (basic-pitch)",
-                    info="Lower = longer note durations")
+                    label="Frame threshold (basic-pitch)")
                 crepe_model = gr.Dropdown(
                     choices=[
                         ("tiny   — ⚡ fastest",               "tiny"),
@@ -495,25 +519,24 @@ with gr.Blocks(title="tabs-gen") as demo:
             logs = gr.Textbox(
                 label="Pipeline log",
                 lines=12,
-                max_lines=12,       # fixed height — scrolls instead of growing
+                max_lines=12,
                 autoscroll=True,
             )
 
             gr.Markdown("### 🎵 Stems")
             with gr.Row():
-                stem_vocals = gr.Audio(label="Vocals", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
-                stem_guitar = gr.Audio(label="Guitar", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
+                stem_vocals = gr.HTML(_audio_html(None, "Vocals"))
+                stem_guitar = gr.HTML(_audio_html(None, "Guitar"))
             with gr.Row():
-                stem_bass  = gr.Audio(label="Bass",  type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
-                stem_drums = gr.Audio(label="Drums", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
+                stem_bass  = gr.HTML(_audio_html(None, "Bass"))
+                stem_drums = gr.HTML(_audio_html(None, "Drums"))
             with gr.Row():
-                stem_piano = gr.Audio(label="Piano", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
-                stem_other = gr.Audio(label="Other", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
+                stem_piano = gr.HTML(_audio_html(None, "Piano"))
+                stem_other = gr.HTML(_audio_html(None, "Other"))
 
             gr.Markdown("### 📄 Tab files")
             download_files = gr.Files(label="Download ASCII / GP5 tabs", interactive=False)
 
-            # ── Custom mix ────────────────────────────────────────────────
             gr.Markdown("### 🎛️ Custom Mix")
             gr.Markdown(
                 "Select which stems to combine (or exclude). "
@@ -526,7 +549,7 @@ with gr.Blocks(title="tabs-gen") as demo:
             )
             mix_btn    = gr.Button("🎚️  Create Mix", variant="secondary")
             mix_status = gr.Markdown("")
-            mix_audio  = gr.Audio(label="Custom mix output", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
+            mix_audio  = gr.HTML(_audio_html(None, "Mix"))
 
     # ----------------------------------------------------------------------- #
     # Wiring
@@ -590,6 +613,5 @@ if __name__ == "__main__":
         share=False,
         inbrowser=True,
         theme=gr.themes.Soft(),
-        # Allow Gradio to serve files from the home dir (stems live outside tmp)
         allowed_paths=[str(Path.home())],
     )
