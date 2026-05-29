@@ -253,13 +253,15 @@ def _run(
     if result.gp5_path and result.gp5_path.exists():
         downloads.append(str(result.gp5_path))
 
-    found = [n for n in STEM_NAMES if n in stem_paths_state]
     progress(1.0, desc="Done!")
+    stem_lines = "\n".join(
+        f"   {name:<8} → {path}" for name, path in stem_paths_state.items()
+    )
     log_lines.append(
         f"\n✅  Done in {result.elapsed_seconds:.1f}s\n"
-        f"   Stems: {', '.join(found)}"
-        + (f"\n   ASCII  → {result.ascii_path}" if result.ascii_path else "")
-        + (f"\n   GP5    → {result.gp5_path}"   if result.gp5_path   else "")
+        f"── Stems saved ──\n{stem_lines}"
+        + (f"\n── Tabs ──\n   ASCII → {result.ascii_path}" if result.ascii_path else "")
+        + (f"\n   GP5   → {result.gp5_path}"               if result.gp5_path   else "")
     )
     yield ["\n".join(log_lines)] + stem_audio + [downloads, stem_paths_state]
 
@@ -308,7 +310,7 @@ def _create_mix(stem_paths_state: dict | None, selected: list[str]) -> tuple[str
     except subprocess.CalledProcessError as e:
         return None, f"❌ ffmpeg error:\n{e.stderr.decode()}"
 
-    msg_parts.insert(0, f"✅ Mixed {len(files)} stems → {out.name}")
+    msg_parts.insert(0, f"✅ Mixed {len(files)} stems → `{out}`")
     return str(out), " ".join(msg_parts)
 
 
@@ -317,6 +319,10 @@ def _create_mix(stem_paths_state: dict | None, selected: list[str]) -> tuple[str
 # --------------------------------------------------------------------------- #
 
 _best = PRESETS["best"]   # used for initial component values
+
+# Native browser <audio> player: always shows the full song range as a seek bar.
+# Gradio's waveform view zooms in (20px/sec) and scrolls for long songs.
+_AUDIO_OPTS = gr.WaveformOptions(show_recording_waveform=False)
 
 with gr.Blocks(title="tabs-gen") as demo:
 
@@ -465,14 +471,14 @@ with gr.Blocks(title="tabs-gen") as demo:
 
             gr.Markdown("### 🎵 Stems")
             with gr.Row():
-                stem_vocals = gr.Audio(label="Vocals", type="filepath", interactive=False)
-                stem_guitar = gr.Audio(label="Guitar", type="filepath", interactive=False)
+                stem_vocals = gr.Audio(label="Vocals", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
+                stem_guitar = gr.Audio(label="Guitar", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
             with gr.Row():
-                stem_bass  = gr.Audio(label="Bass",  type="filepath", interactive=False)
-                stem_drums = gr.Audio(label="Drums", type="filepath", interactive=False)
+                stem_bass  = gr.Audio(label="Bass",  type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
+                stem_drums = gr.Audio(label="Drums", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
             with gr.Row():
-                stem_piano = gr.Audio(label="Piano", type="filepath", interactive=False)
-                stem_other = gr.Audio(label="Other", type="filepath", interactive=False)
+                stem_piano = gr.Audio(label="Piano", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
+                stem_other = gr.Audio(label="Other", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
 
             gr.Markdown("### 📄 Tab files")
             download_files = gr.Files(label="Download ASCII / GP5 tabs", interactive=False)
@@ -490,7 +496,7 @@ with gr.Blocks(title="tabs-gen") as demo:
             )
             mix_btn    = gr.Button("🎚️  Create Mix", variant="secondary")
             mix_status = gr.Markdown("")
-            mix_audio  = gr.Audio(label="Custom mix output", type="filepath", interactive=False)
+            mix_audio  = gr.Audio(label="Custom mix output", type="filepath", interactive=False, waveform_options=_AUDIO_OPTS)
 
     # ----------------------------------------------------------------------- #
     # Wiring
@@ -527,7 +533,12 @@ with gr.Blocks(title="tabs-gen") as demo:
         stems_dir_state,
     ]
 
-    run_event = run_btn.click(fn=_run, inputs=all_inputs, outputs=all_outputs)
+    run_event = run_btn.click(
+        fn=_run,
+        inputs=all_inputs,
+        outputs=all_outputs,
+        show_progress="full",   # shows the gr.Progress bar prominently
+    )
     stop_btn.click(fn=None, cancels=[run_event])
 
     mix_btn.click(
