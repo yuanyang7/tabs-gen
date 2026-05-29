@@ -87,13 +87,13 @@ def _prog_html(val: float, desc: str = "") -> str:
     pct = min(100, max(0, int(val * 100)))
     color = "#22c55e" if pct >= 100 else "#818cf8"
     return (
-        '<div style="margin:6px 0 10px">'
-        f'<div style="background:#e5e7eb;border-radius:6px;height:14px;overflow:hidden">'
+        '<div style="margin:8px 0 12px;font-family:sans-serif">'
+        f'<div style="background:#374151;border-radius:8px;height:20px;overflow:hidden">'
         f'<div style="background:{color};height:100%;width:{pct}%;'
-        'transition:width 0.4s ease;border-radius:6px"></div>'
+        'transition:width 0.5s ease;border-radius:8px"></div>'
         '</div>'
-        f'<div style="font-size:12px;color:#6b7280;margin-top:4px">'
-        f'{desc}&nbsp;<span style="float:right">{pct}%</span></div>'
+        f'<div style="font-size:13px;color:#9ca3af;margin-top:5px;display:flex;justify-content:space-between">'
+        f'<span>{desc}</span><strong style="color:#e5e7eb">{pct}%</strong></div>'
         '</div>'
     )
 
@@ -479,6 +479,9 @@ with gr.Blocks(title="tabs-gen") as demo:
                 run_btn  = gr.Button("▶  Run",  variant="primary", size="lg")
                 stop_btn = gr.Button("⏹  Stop", variant="stop",    size="lg")
 
+            # Progress bar sits right below the buttons — always in view
+            prog_bar = gr.HTML(value="", elem_id="tabs-gen-progress")
+
         # ------------------------------------------------------------------- #
         # RIGHT — outputs
         # ------------------------------------------------------------------- #
@@ -490,9 +493,6 @@ with gr.Blocks(title="tabs-gen") as demo:
                 max_lines=12,       # fixed height — scrolls instead of growing
                 autoscroll=True,
             )
-
-            # Explicit HTML progress bar — updates on every yield
-            prog_bar = gr.HTML(value="", elem_id="tabs-gen-progress")
 
             gr.Markdown("### 🎵 Stems")
             with gr.Row():
