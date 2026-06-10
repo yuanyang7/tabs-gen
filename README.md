@@ -142,7 +142,7 @@ Usage: tabs-gen [OPTIONS] AUDIO_FILE
 
 Options:
   -o, --output PATH               Output directory
-                                  [default: /Volumes/home/tabs-gen-output]
+                                  [default: ~/Music/tabs-gen]
   --backend [demucs|mdx]          Separation backend (default: demucs).
                                   mdx = BSRoformer vocals + htdemucs_ft
                                   instrumental, highest quality 4-stem output.
@@ -182,7 +182,7 @@ Files are uploaded to `gdrive:<song_title>/`.
 For an input `song.mp3` (or YouTube download), the output directory contains:
 
 ```
-/Volumes/home/tabs-gen-output/
+~/Music/tabs-gen/
 ├── song.mp3              # downloaded source (YouTube runs only)
 ├── song.txt              # ASCII tabs — only with --generate-tabs
 ├── song.gp5              # Guitar Pro 5 — only with --generate-tabs
