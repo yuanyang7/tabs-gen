@@ -204,7 +204,7 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
     logger.info("=== Stage 4: Rendering output ===")
 
     if "ascii" in config.formats:
-        from tabs_gen.stages.output.ascii_tab import render_full_tab
+        from tabs_gen.stages.render.ascii_tab import render_full_tab
 
         ascii_text = render_full_tab(
             guitar_tab=guitar_tab,
@@ -219,7 +219,7 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
         logger.info("ASCII tab written: %s", ascii_path)
 
     if "gp5" in config.formats:
-        from tabs_gen.stages.output.gp5 import write_gp5
+        from tabs_gen.stages.render.gp5 import write_gp5
 
         gp5_path = config.output_dir / f"{config.title}.gp5"
         write_gp5(

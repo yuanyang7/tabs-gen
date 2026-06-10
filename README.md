@@ -8,11 +8,14 @@ Generate instrument stems and tabs from any audio file or YouTube URL using ML-b
 # Activate the venv first (required every session)
 source .venv/bin/activate
 
-# Split a YouTube video into 6 stems (vocals/drums/bass/guitar/piano/other)
+# Split a YouTube video into stems (vocals/drums/bass/other by default)
 tabs-gen "https://youtu.be/<id>"
 
 # Same with a local file
 tabs-gen song.mp3
+
+# Use the 6-stem model to also separate guitar and piano
+tabs-gen "https://youtu.be/<id>" --model htdemucs_6s
 
 # Also generate ASCII + Guitar Pro tabs (opt-in, takes longer)
 tabs-gen "https://youtu.be/<id>" --generate-tabs
@@ -28,7 +31,7 @@ Output quality is **draft-quality** — suitable as a starting point for manual 
 ---
 
 Given an MP3, WAV, or YouTube URL, `tabs-gen` outputs:
-- Separated stems (vocals, guitar, bass, drums, piano, other) as MP3
+- Separated stems (vocals, drums, bass, other — plus guitar and piano with `--model htdemucs_6s`) as MP3
 - Guitar tabs (ASCII + Guitar Pro) — with `--generate-tabs`
 - Bass tabs (ASCII + Guitar Pro) — with `--generate-tabs`
 - Drum tabs (ASCII) — with `--generate-tabs`
@@ -40,8 +43,9 @@ Given an MP3, WAV, or YouTube URL, `tabs-gen` outputs:
 Audio file
     │
     ▼
-Stage 1 — Source separation (Demucs htdemucs_6s)
-    │        Splits into: vocals / guitar / bass / drums / piano / other
+Stage 1 — Source separation (Demucs htdemucs by default, or MDX backend)
+    │        4 stems: vocals / drums / bass / other
+    │        --model htdemucs_6s adds guitar / piano (6 stems)
     ▼
 Stage 2 — Transcription per stem
     │        Guitar/Bass → basic-pitch (Spotify)
@@ -151,8 +155,9 @@ Options:
   -f, --format [ascii|gp5]        Output format(s), repeatable  [default: ascii, gp5]
   -i, --instrument [guitar|bass|drums|vocals]
                                   Instruments to include, repeatable
-  --model TEXT                    Demucs model: htdemucs, htdemucs_6s, htdemucs_ft
-                                  [default: htdemucs_6s]
+  --model TEXT                    Demucs model (demucs backend only): htdemucs (4-stem),
+                                  htdemucs_6s (adds guitar/piano), htdemucs_ft
+                                  [default: htdemucs]
   --device TEXT                   Torch device: mps, cuda, cpu  [default: mps]
   --shifts INTEGER                Test-time shifts (1=fast, 10=best)  [default: 1]
   --keep-wav                      Keep full-quality WAV stems alongside MP3s
@@ -177,22 +182,44 @@ rclone config  # follow prompts to add a Google Drive remote named "gdrive"
 
 Files are uploaded to `gdrive:<song_title>/`.
 
+## Web UI
+
+A Gradio-based web UI is included as an alternative to the CLI:
+
+```bash
+source .venv/bin/activate
+pip install gradio
+python app.py
+```
+
+Then open http://localhost:7860. The UI lets you:
+
+- Upload a local audio file or paste a YouTube URL
+- Pick a quick preset — **Fast** (stems only, ~2 min), **Balanced** (fine-tuned model, stems only, ~10 min), or **Best Quality** (MDX backend + 10 shifts, ~30 min) — or configure backend/model/device/shifts manually
+- Opt into tab generation, choosing instruments and output formats
+- Watch live progress and logs while processing runs
+- Play back each separated stem directly in the browser
+- Build and preview a custom mix from any combination of stems
+- Download generated ASCII/GP5 tab files
+
+Each run is saved to `<output>/<title>_<preset>/`, including a `config.json` snapshot of the settings used so the run can be reproduced later.
+
 ## Output
 
-For an input `song.mp3` (or YouTube download), the output directory contains:
+For an input `song.mp3` (or YouTube download), `tabs-gen` creates a subdirectory named after the song title under `<output>/`:
 
 ```
-~/Music/tabs-gen/
-├── song.mp3              # downloaded source (YouTube runs only)
-├── song.txt              # ASCII tabs — only with --generate-tabs
-├── song.gp5              # Guitar Pro 5 — only with --generate-tabs
-└── stems/
-    ├── vocals.mp3        # 320kbps MP3 (WAV also kept if --keep-wav)
-    ├── guitar.mp3
+~/Music/tabs-gen/<song-title>/
+├── song.mp3                  # downloaded source (YouTube runs only)
+├── song.txt                  # ASCII tabs — only with --generate-tabs
+├── song.gp5                  # Guitar Pro 5 — only with --generate-tabs
+└── stems/<backend>/           # e.g. demucs_htdemucs, demucs_htdemucs_6s, or mdx
+    ├── vocals.mp3            # 320kbps MP3 (WAV also kept if --keep-wav)
     ├── bass.mp3
     ├── drums.mp3
-    ├── piano.mp3
-    └── other.mp3
+    ├── other.mp3
+    ├── guitar.mp3            # htdemucs_6s only
+    └── piano.mp3             # htdemucs_6s only
 ```
 
 ### ASCII tab example
@@ -256,22 +283,27 @@ Tests cover the notation and rendering stages (guitar/bass fret assignment, drum
 ## Project structure
 
 ```
+app.py                       # Gradio web UI
+
 tabs_gen/
 ├── cli.py                    # Click CLI entry point
 ├── pipeline.py               # Orchestrates all 4 stages
 ├── stages/
-│   ├── separation.py         # Stage 1: Demucs wrapper
+│   ├── separation.py         # Stage 1: Demucs / MDX wrapper
 │   ├── transcription.py      # Stage 2: basic-pitch, CREPE, ADTLib
 │   ├── notation/
 │   │   ├── guitar.py         # DP fret/string solver
 │   │   ├── bass.py           # Bass tab assignment
 │   │   ├── drums.py          # Drum MIDI map → grid
 │   │   └── vocals.py         # Pitch contour → note staff
-│   └── output/
+│   └── render/
 │       ├── ascii_tab.py      # ASCII tab renderer
 │       └── gp5.py            # PyGuitarPro GP5 writer
 └── utils/
     ├── audio.py              # Audio I/O helpers
+    ├── compress.py           # WAV → MP3 stem compression
+    ├── gdrive.py             # rclone Google Drive upload
+    ├── youtube.py            # yt-dlp download helpers
     ├── midi_utils.py         # MIDI parsing, quantisation
     └── rhythm.py             # BPM detection, beat grid
 ```

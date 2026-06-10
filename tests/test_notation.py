@@ -8,7 +8,7 @@ from tabs_gen.stages.notation.bass import assign_frets as bass_assign_frets, BAS
 from tabs_gen.stages.notation.drums import build_drum_grid
 from tabs_gen.stages.notation.vocals import build_vocal_staff
 from tabs_gen.stages.transcription import DrumData, DrumOnset
-from tabs_gen.stages.output.ascii_tab import (
+from tabs_gen.stages.render.ascii_tab import (
     render_guitar_tab,
     render_bass_tab,
     render_drum_tab,
